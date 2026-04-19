@@ -1,0 +1,190 @@
+"""
+Document conversion module for reading PDF and DOCX files.
+Converts documents to markdown format with caching support.
+
+Cache structure:
+    .picho/
+    └── cache/
+        └── files/
+            └── {cache_key}/
+                ├── document.md
+                ├── metadata.json
+                ├── image_0.png
+                ├── image_1.png
+                └── ...
+"""
+
+import asyncio
+import hashlib
+import json
+from datetime import datetime
+from pathlib import Path
+
+from picho.builtin.tool.extension.read.parser import Chunk, ChunkType
+
+
+DOCUMENT_FILE = "document.md"
+METADATA_FILE = "metadata.json"
+
+
+def get_cache_dir(file_path: str, workspace: str) -> Path:
+    """
+    Get cache directory path for a file.
+
+    Cache key is based on file path + modification time.
+    When file is modified, mtime changes -> cache_key changes -> new cache dir.
+    """
+    p = Path(file_path)
+    mtime = p.stat().st_mtime
+    cache_key = hashlib.md5(f"{file_path}:{mtime}".encode()).hexdigest()
+    cache_dir = Path(workspace) / ".picho" / "cache" / "files" / cache_key
+    return cache_dir
+
+
+def read_cache(cache_dir: Path) -> str | None:
+    """Read cached markdown content if exists."""
+    document_path = cache_dir / DOCUMENT_FILE
+    if document_path.exists():
+        return document_path.read_text(encoding="utf-8")
+    return None
+
+
+def save_cache(cache_dir: Path, content: str, source_file: str, file_type: str) -> None:
+    """Save markdown content and metadata to cache."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    document_path = cache_dir / DOCUMENT_FILE
+    document_path.write_text(content, encoding="utf-8")
+
+    p = Path(source_file)
+    metadata = {
+        "source_file": str(p),
+        "file_name": p.name,
+        "file_type": file_type,
+        "mtime": p.stat().st_mtime,
+        "converted_at": datetime.now().isoformat(),
+    }
+    metadata_path = cache_dir / METADATA_FILE
+    metadata_path.write_text(
+        json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def chunks_to_markdown(chunks: list[Chunk]) -> str:
+    """Convert chunks to markdown format."""
+    markdown_lines = []
+
+    for chunk in chunks:
+        if chunk.type == ChunkType.TEXT.value:
+            text = chunk.text.strip()
+            if not text:
+                continue
+            if chunk.metadata.is_title and chunk.metadata.title_level > 0:
+                level = min(chunk.metadata.title_level, 6)
+                markdown_lines.append(f"{'#' * level} {text}")
+            else:
+                markdown_lines.append(text)
+
+        elif chunk.type == ChunkType.IMAGE.value:
+            if chunk.image.type == "image_path" and chunk.image.path:
+                markdown_lines.append(f"![image]({chunk.image.path})")
+
+        elif chunk.type == ChunkType.TABLE.value:
+            if chunk.text.strip():
+                lines = chunk.text.strip().split("\n")
+                table_lines = []
+                for line in lines:
+                    if "\t|" in line:
+                        table_line = line.replace("\t|", "|")
+                        table_lines.append(f"|{table_line}|")
+                    else:
+                        table_lines.append(f"|{line}|")
+
+                if table_lines:
+                    header = table_lines[0]
+                    col_count = len(header.split("|")) - 2
+                    separator = "|" + "|".join(["---" for _ in range(col_count)]) + "|"
+                    table_lines.insert(1, separator)
+                    markdown_lines.extend(table_lines)
+
+    return "\n\n".join(markdown_lines)
+
+
+async def convert_to_markdown_async(
+    file_path: str,
+    workspace: str,
+    signal=None,
+) -> str:
+    """
+    Run document conversion in a worker thread so abort signals can interrupt the
+    await path even when PDF/DOCX parsing is CPU/IO heavy.
+    """
+    conversion_task = asyncio.create_task(
+        asyncio.to_thread(convert_to_markdown, file_path, workspace)
+    )
+    if signal is None:
+        return await conversion_task
+
+    signal_task = asyncio.create_task(signal.wait())
+    try:
+        done, pending = await asyncio.wait(
+            [conversion_task, signal_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        if signal_task in done and signal.is_set():
+            conversion_task.cancel()
+            raise asyncio.CancelledError("Operation aborted by user")
+
+        return await conversion_task
+    finally:
+        if not signal_task.done():
+            signal_task.cancel()
+            try:
+                await signal_task
+            except asyncio.CancelledError:
+                pass
+
+
+def convert_to_markdown(file_path: str, workspace: str) -> str:
+    """
+    Convert a PDF or DOCX file to markdown.
+
+    Args:
+        file_path: Path to the file to convert
+        workspace: Workspace path for cache storage
+
+    Returns:
+        Markdown content as string
+    """
+    cache_dir = get_cache_dir(file_path, workspace)
+
+    cached = read_cache(cache_dir)
+    if cached is not None:
+        return cached
+
+    ext = Path(file_path).suffix.lower()
+    image_dir = str(cache_dir)
+
+    if ext == ".pdf":
+        from picho.builtin.tool.extension.read.parser import parse_pdf
+
+        chunks = parse_pdf(file_path, image_dir)
+    elif ext == ".docx":
+        from picho.builtin.tool.extension.read.parser import parse_docx
+
+        chunks = parse_docx(file_path, image_dir)
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
+
+    markdown = chunks_to_markdown(chunks)
+    save_cache(cache_dir, markdown, file_path, ext)
+
+    return markdown

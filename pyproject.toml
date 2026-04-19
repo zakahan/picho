@@ -1,0 +1,52 @@
+[project]
+name = "picho"
+version = "0.1.2a1"
+description = "A minimalist Agent framework"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+authors = [
+    {name = "Zhi Han", email = "sliverydayday@gmail.com"}
+]
+dependencies = [
+    "httpx>=0.28.1",
+    "openai>=2.26.0",
+    "opentelemetry-api>=1.33.1",
+    "opentelemetry-sdk>=1.33.1",
+    "textual>=0.50.0",
+    "click>=8.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+picho = "picho.cli:cli"
+
+
+[project.optional-dependencies]
+
+extra = [
+    "python-docx>=1.2.0",
+    "pymupdf>=1.25.0",
+    "pillow>=11.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "python-dotenv>=1.2.2",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["picho*"]
+exclude = ["assets*", "examples*", "tests*", "ref*"]
+
+[tool.setuptools.package-data]
+picho = ["**/*.md", "**/*.html", "**/*.txt"]

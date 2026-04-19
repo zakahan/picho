@@ -208,7 +208,7 @@ __marimo__/
 /.python-version
 /uv.lock
 /examples/
-/.pipilot/
+/.picho/
 /workspace/
 /.DS_Store
 /.dbg/
