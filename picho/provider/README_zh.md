@@ -8,7 +8,7 @@ picho 的 LLM 提供商实现和类型定义。
 
 - 抽象 `Model` 基类
 - 模型工厂用于提供商管理
-- OpenAI 提供商实现
+- OpenAI、Anthropic、Google 与 Ark 提供商实现
 - 消息和内容的类型定义
 
 ## 架构
@@ -22,6 +22,8 @@ provider/
 │   ├── __init__.py          # 模型导出
 │   ├── base.py              # 基础 Model 类
 │   ├── factory.py           # 模型工厂
+│   ├── anthropic.py         # Anthropic Messages API
+│   ├── google.py            # Google Gemini API
 │   ├── openai_completion.py # OpenAI Chat Completions API
 │   ├── openai_responses.py  # OpenAI Responses API
 │   └── ark_responses.py     # Ark Responses API
@@ -35,7 +37,7 @@ provider/
 from picho.provider import get_model
 
 model = get_model(
-    provider_type="openai-completion",
+    model_provider="openai-completion",
     model_name="gpt-4o",
     api_key="your-api-key",
     base_url="https://api.openai.com/v1",  # 可选
@@ -124,7 +126,7 @@ tool_call = ToolCall(
 from picho.provider import get_model
 
 model = get_model(
-    provider_type="openai-completion",
+    model_provider="openai-completion",
     model_name="gpt-4o",
     api_key="your-api-key",
 )
@@ -140,8 +142,44 @@ async for event in stream:
 
 ```python
 model = get_model(
-    provider_type="openai-responses",
+    model_provider="openai-responses",
     model_name="gpt-4o",
+    api_key="your-api-key",
+)
+```
+
+### Anthropic Messages
+
+```python
+model = get_model(
+    model_provider="anthropic",
+    model_name="claude-sonnet-4-5",
+    api_key="your-api-key",
+)
+```
+
+### Google Gemini
+
+```python
+model = get_model(
+    model_provider="google",
+    model_name="gemini-3-flash-preview",
+    api_key="your-api-key",
+)
+```
+
+如果你是从 PyPI 安装 `picho`，并且需要使用 Google Gemini provider，请额外安装可选依赖：
+
+```bash
+uv add picho["provider-google"]
+```
+
+### Ark Responses
+
+```python
+model = get_model(
+    model_provider="ark-responses",
+    model_name="doubao-seed-2-0-lite-260215",
     api_key="your-api-key",
 )
 ```
@@ -150,7 +188,7 @@ model = get_model(
 
 ```python
 model = get_model(
-    provider_type="openai-completion",
+    model_provider="openai-completion",
     model_name="custom-model",
     api_key="your-api-key",
     base_url="https://your-api-endpoint.com/v1",

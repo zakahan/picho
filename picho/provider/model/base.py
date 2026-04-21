@@ -16,6 +16,8 @@ class ProviderType(str, Enum):
     OPENAI_COMPLETION = "openai-completion"
     OPENAI_RESPONSES = "openai-responses"
     ARK_RESPONSES = "ark-responses"
+    ANTHROPIC = "anthropic"
+    GOOGLE = "google"
     MOCK = "mock"
     CUSTOM = "custom"
     EMPTY = "empty"

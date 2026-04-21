@@ -87,32 +87,31 @@ def to_openai_messages(
                     messages.append({"role": "user", "content": content})
 
         elif isinstance(msg, AssistantMessage):
-            content = []
+            text_parts: list[str] = []
+            tool_calls: list[dict[str, Any]] = []
             for block in msg.content:
                 if isinstance(block, TextContent):
                     if block.text:
-                        content.append({"type": "text", "text": block.text})
-                elif isinstance(block, ThinkingContent):
-                    if block.thinking.strip():
-                        content.append(
-                            {
-                                "type": "thinking",
-                                "thinking": block.thinking,
-                            }
-                        )
+                        text_parts.append(block.text)
                 elif isinstance(block, ToolCall):
-                    content.append(
+                    tool_calls.append(
                         {
-                            "type": "tool_use",
                             "id": block.id,
+                            "type": "function",
                             "function": {
                                 "name": block.name,
                                 "arguments": json.dumps(block.arguments),
                             },
                         }
                     )
-            if content:
-                messages.append({"role": "assistant", "content": content})
+            if text_parts or tool_calls:
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": "".join(text_parts) or None,
+                        **({"tool_calls": tool_calls} if tool_calls else {}),
+                    }
+                )
             elif msg.error_message:
                 messages.append(
                     {"role": "assistant", "content": f"[Error: {msg.error_message}]"}
@@ -376,7 +375,7 @@ class OpenAICompletionModel(Model):
                     role="assistant",
                     content=content_blocks,
                     api="openai-completions",
-                    provider="openai",
+                    provider=self.model_provider,
                     model=self.model_name,
                     usage=usage,
                     stop_reason=stop_reason,
@@ -394,7 +393,7 @@ class OpenAICompletionModel(Model):
                     role="assistant",
                     content=[TextContent(type="text", text=f"Error: {str(e)}")],
                     api="openai-completions",
-                    provider="openai",
+                    provider=self.model_provider,
                     model=self.model_name,
                     stop_reason=StopReason.ERROR,
                     error_message=str(e),

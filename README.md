@@ -52,7 +52,11 @@ Using `uv` is recommended:
 # Install
 uv add picho
 # If you want native read support for PDF and DOCX
-uv add picho["extra"]
+uv add picho["super-reader"]
+# If you want to use the Google Gemini provider
+uv add picho["provider-google"]
+# If you want all optional extensions in one shot
+uv add picho["all"]
 ```
 
 ### Usage Modes
@@ -248,4 +252,4 @@ The core directories listed above all have their own dedicated documentation. Yo
 
 ## Notes
 
-The project is still in the early development stage. On the provider side, only ark-responses is fully supported, and it cannot be directly put into use yet.
+The project is still in the early development stage. The provider layer now includes `ark-responses`, `openai-completion`, `openai-responses`, `anthropic`, and `google`, but the overall project is still evolving and should be evaluated carefully before production use.

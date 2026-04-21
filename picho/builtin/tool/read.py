@@ -240,7 +240,10 @@ def create_read_tool(
                     content=[
                         TextContent(
                             type="text",
-                            text=f"PDF/DOCX support requires extra dependencies. Install with: uv pip install --group extra picho\n\nError: {e}",
+                            text='PDF/DOCX support requires optional dependency group `super-reader`. '
+                            'Install with: uv add picho["super-reader"] '
+                            'or pip install \'picho[super-reader]\''
+                            f"\n\nError: {e}",
                         ),
                     ],
                 )
@@ -567,7 +570,7 @@ For text files:
 For PDF/DOCX files:
 - Files are converted to markdown format
 - offset/limit apply to the converted markdown lines
-- Requires extra dependencies: uv pip install --group extra picho
+- Requires optional dependency group `super-reader`: uv add picho["super-reader"] or pip install 'picho[super-reader]'
 
 For video files:
 - Returns the original video by default
