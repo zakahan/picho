@@ -8,7 +8,7 @@ This module provides:
 
 - Abstract `Model` base class
 - Model factory for provider management
-- OpenAI provider implementations
+- OpenAI, Anthropic, Google, and Ark provider implementations
 - Type definitions for messages and content
 
 ## Architecture
@@ -22,6 +22,8 @@ provider/
 │   ├── __init__.py          # Model exports
 │   ├── base.py              # Base Model class
 │   ├── factory.py           # Model factory
+│   ├── anthropic.py         # Anthropic Messages API
+│   ├── google.py            # Google Gemini API
 │   ├── openai_completion.py # OpenAI Chat Completions API
 │   ├── openai_responses.py  # OpenAI Responses API
 │   └── ark_responses.py     # Ark Responses API
@@ -35,7 +37,7 @@ Get a model instance using the factory:
 from picho.provider import get_model
 
 model = get_model(
-    provider_type="openai-completion",
+    model_provider="openai-completion",
     model_name="gpt-4o",
     api_key="your-api-key",
     base_url="https://api.openai.com/v1",  # Optional
@@ -124,7 +126,7 @@ tool_call = ToolCall(
 from picho.provider import get_model
 
 model = get_model(
-    provider_type="openai-completion",
+    model_provider="openai-completion",
     model_name="gpt-4o",
     api_key="your-api-key",
 )
@@ -140,8 +142,44 @@ async for event in stream:
 
 ```python
 model = get_model(
-    provider_type="openai-responses",
+    model_provider="openai-responses",
     model_name="gpt-4o",
+    api_key="your-api-key",
+)
+```
+
+### Anthropic Messages
+
+```python
+model = get_model(
+    model_provider="anthropic",
+    model_name="claude-sonnet-4-5",
+    api_key="your-api-key",
+)
+```
+
+### Google Gemini
+
+```python
+model = get_model(
+    model_provider="google",
+    model_name="gemini-3-flash-preview",
+    api_key="your-api-key",
+)
+```
+
+If you install `picho` from PyPI and want to use the Google Gemini provider, install the optional dependency:
+
+```bash
+uv add picho["provider-google"]
+```
+
+### Ark Responses
+
+```python
+model = get_model(
+    model_provider="ark-responses",
+    model_name="doubao-seed-2-0-lite-260215",
     api_key="your-api-key",
 )
 ```
@@ -150,7 +188,7 @@ model = get_model(
 
 ```python
 model = get_model(
-    provider_type="openai-completion",
+    model_provider="openai-completion",
     model_name="custom-model",
     api_key="your-api-key",
     base_url="https://your-api-endpoint.com/v1",

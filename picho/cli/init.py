@@ -30,6 +30,18 @@ PROVIDER_PRESETS = {
         "env_key": "ARK_API_KEY",
         "description": "Volcengine Ark API (Doubao models with reasoning)",
     },
+    ProviderType.ANTHROPIC.value: {
+        "model_name": "claude-sonnet-4-5",
+        "base_url": "https://api.anthropic.com",
+        "env_key": "ANTHROPIC_API_KEY",
+        "description": "Anthropic Claude Messages API (tool use and thinking)",
+    },
+    ProviderType.GOOGLE.value: {
+        "model_name": "gemini-3-flash-preview",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta",
+        "env_key": "GEMINI_API_KEY",
+        "description": "Google Gemini API (multimodal and function calling)",
+    },
     ProviderType.MOCK.value: {
         "model_name": "mock-model",
         "base_url": "mock://local",

@@ -53,7 +53,11 @@ while True:
 # 安装
 uv add picho
 # 如果你想要支持原生read pdf、docx的需求
-uv add picho["extra"]
+uv add picho["super-reader"]
+# 如果你想要使用 Google Gemini provider
+uv add picho["provider-google"]
+# 如果你想要一次安装所有可选扩展
+uv add picho["all"]
 ```
 
 ### 使用方式
@@ -250,4 +254,4 @@ picho/
 
 ## Notes
 
-目前项目仍处于早期开发阶段，provider方面只有ark-responses支持完善，尚无法直接投入使用。
+目前项目仍处于早期开发阶段。provider 层现在已经包含 `ark-responses`、`openai-completion`、`openai-responses`、`anthropic` 和 `google`，但整体项目仍在持续演进，生产使用前仍建议充分评估。

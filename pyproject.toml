@@ -19,6 +19,7 @@ dependencies = [
     "uvicorn>=0.30.0",
     "pydantic>=2.0.0",
     "pyyaml>=6.0.3",
+    "anthropic>=0.96.0",
 ]
 
 [project.scripts]
@@ -27,10 +28,19 @@ picho = "picho.cli:cli"
 
 [project.optional-dependencies]
 
-extra = [
+super-reader = [
     "python-docx>=1.2.0",
     "pymupdf>=1.25.0",
     "pillow>=11.0.0",
+]
+provider-google = [
+    "google-genai>=1.73.1",
+]
+all = [
+    "python-docx>=1.2.0",
+    "pymupdf>=1.25.0",
+    "pillow>=11.0.0",
+    "google-genai>=1.73.1",
 ]
 
 [dependency-groups]
