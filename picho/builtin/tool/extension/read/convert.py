@@ -20,7 +20,11 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from picho.builtin.tool.extension.read.parser import Chunk, ChunkType
+from picho.builtin.tool.extension.read.parser import (
+    Chunk,
+    ChunkType,
+    DOCUMENT_PARSERS,
+)
 
 
 DOCUMENT_FILE = "document.md"
@@ -173,16 +177,10 @@ def convert_to_markdown(file_path: str, workspace: str) -> str:
     ext = Path(file_path).suffix.lower()
     image_dir = str(cache_dir)
 
-    if ext == ".pdf":
-        from picho.builtin.tool.extension.read.parser import parse_pdf
-
-        chunks = parse_pdf(file_path, image_dir)
-    elif ext == ".docx":
-        from picho.builtin.tool.extension.read.parser import parse_docx
-
-        chunks = parse_docx(file_path, image_dir)
-    else:
+    parser = DOCUMENT_PARSERS.get(ext)
+    if parser is None:
         raise ValueError(f"Unsupported file type: {ext}")
+    chunks = parser(file_path, image_dir)
 
     markdown = chunks_to_markdown(chunks)
     save_cache(cache_dir, markdown, file_path, ext)

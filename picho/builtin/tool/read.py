@@ -23,6 +23,7 @@ from .extension.read import (
     find_read_extension,
     load_read_extensions,
 )
+from .extension.read.parser import SUPPORTED_DOCUMENT_EXTENSIONS
 
 _log = get_logger(__name__)
 
@@ -65,7 +66,7 @@ def judge_file_type(file_path: str) -> str:
     Determine file type based on file path.
 
     :param file_path: Full path of the file
-    :return: "extra" (pdf/docx), "image", "video", "binary", "not_exist", or "text"
+    :return: "extra" (pdf/docx), "image", "video", "not_supported", "not_exist", or "text"
     """
     path = Path(file_path)
 
@@ -74,7 +75,6 @@ def judge_file_type(file_path: str) -> str:
 
     file_ext = path.suffix.lower()
 
-    extra_extensions = {".pdf", ".docx"}
     binary_extensions = {
         ".exe",
         ".dll",
@@ -92,14 +92,14 @@ def judge_file_type(file_path: str) -> str:
         ".iso",
     }
 
-    if file_ext in extra_extensions:
+    if file_ext in SUPPORTED_DOCUMENT_EXTENSIONS:
         return "extra"
     elif file_ext in IMAGE_MIME_TYPES:
         return "image"
     elif file_ext in VIDEO_MIME_TYPES:
         return "video"
     elif file_ext in binary_extensions:
-        return "binary"
+        return "not_supported"
     else:
         return "text"
 
@@ -240,9 +240,9 @@ def create_read_tool(
                     content=[
                         TextContent(
                             type="text",
-                            text='PDF/DOCX support requires optional dependency group `super-reader`. '
+                            text="PDF/DOCX support requires optional dependency group `super-reader`. "
                             'Install with: uv add picho["super-reader"] '
-                            'or pip install \'picho[super-reader]\''
+                            "or pip install 'picho[super-reader]'"
                             f"\n\nError: {e}",
                         ),
                     ],

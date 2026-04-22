@@ -11,4 +11,20 @@ from picho.builtin.tool.extension.read.parser.types import (
 from picho.builtin.tool.extension.read.parser.parser_docx import parse_docx
 from picho.builtin.tool.extension.read.parser.parser_pdf import parse_pdf
 
-__all__ = ["Chunk", "ChunkType", "Image", "Metadata", "parse_docx", "parse_pdf"]
+DOCUMENT_PARSERS = {
+    ".pdf": parse_pdf,
+    ".docx": parse_docx,
+}
+
+SUPPORTED_DOCUMENT_EXTENSIONS = frozenset(DOCUMENT_PARSERS)
+
+__all__ = [
+    "Chunk",
+    "ChunkType",
+    "Image",
+    "Metadata",
+    "DOCUMENT_PARSERS",
+    "SUPPORTED_DOCUMENT_EXTENSIONS",
+    "parse_docx",
+    "parse_pdf",
+]
