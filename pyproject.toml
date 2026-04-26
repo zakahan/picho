@@ -1,6 +1,6 @@
 [project]
 name = "picho"
-version = "0.1.2"
+version = "0.1.4"
 description = "A minimalist Agent framework"
 readme = "README.md"
 license = { file = "LICENSE" }
