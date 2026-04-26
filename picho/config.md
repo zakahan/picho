@@ -132,6 +132,51 @@ Agent 相关配置。
 | `extensions` | string[] | `[]` | 自定义 read 扩展模块列表，支持 Python 模块名或 `.py` 文件路径 |
 | `video_compression.enabled` | boolean | `true` | 超大视频是否自动压缩 |
 | `video_compression.trigger_size_mb` | int | `512` | 触发自动压缩的体积阈值 |
+| `audio_asr.provider` | string | `"mock"` | WAV/MP3 转写 provider，可选 `mock`、`volcengine` |
+| `audio_asr.language` | string/null | `null` | ASR 语言代码，例如 `zh-CN`；为空时由 provider 自动识别 |
+| `audio_asr.enable_punc` | boolean | `false` | 是否启用标点 |
+| `audio_asr.enable_itn` | boolean | `true` | 是否启用逆文本归一化 |
+| `audio_asr.enable_ddc` | boolean | `false` | 是否启用语义顺滑 |
+| `audio_asr.enable_speaker_info` | boolean | `false` | 是否启用说话人信息 |
+| `audio_asr.include_utterances` | boolean | `true` | 输出中是否包含分句时间戳 |
+| `audio_asr.include_words` | boolean | `false` | provider 返回词级信息时是否保留 |
+| `audio_asr.vad_segment` | boolean | `false` | 是否启用 VAD 分段 |
+| `audio_asr.timeout_seconds` | int | `60` | ASR 任务最大等待秒数 |
+| `audio_asr.poll_interval_seconds` | int | `2` | ASR 任务轮询间隔秒数 |
+| `audio_asr.volcengine.tos_bucket` | string/null | `null` | Volcengine TOS bucket；为空时读取 `DEFAULT_TOS_BUCKET` |
+| `audio_asr.volcengine.tos_region` | string | `"cn-beijing"` | Volcengine TOS 区域 |
+| `audio_asr.volcengine.*_env` | string | 见说明 | Volcengine 凭证环境变量名 |
+
+`audio_asr` 规则：
+- `mock` provider 不访问外部服务，适合开发和测试；输出会明确标记为 mock transcript。
+- `volcengine` provider 会先把本地音频上传到 TOS，再把公开 URL 提交给豆包录音文件识别。
+- Volcengine 默认读取这些环境变量：`VOLCENGINE_ACCESS_KEY`、`VOLCENGINE_SECRET_KEY`、`VOLCENGINE_SPEECH_API_KEY`、`DEFAULT_TOS_BUCKET`。
+- WAV/MP3 转写结果按文件 mtime 和 ASR 关键配置缓存到 `.picho/cache/files`。
+- 每个 provider 的详细配置和使用方式见 `picho/builtin/tool/extension/read/parser/audio/*.md`。
+
+Volcengine ASR 配置示例：
+
+```json
+{
+  "agent": {
+    "builtin": {
+      "tool_config": {
+        "read": {
+          "audio_asr": {
+            "provider": "volcengine",
+            "language": "zh-CN",
+            "enable_punc": true,
+            "volcengine": {
+              "tos_bucket": "my-bucket",
+              "tos_region": "cn-beijing"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 `extensions` 规则：
 - 每个条目可以是模块名，例如 `my_project.read_extensions`

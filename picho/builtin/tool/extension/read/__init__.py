@@ -6,6 +6,7 @@ from picho.builtin.tool.extension.read.convert import (
     convert_to_markdown,
     convert_to_markdown_async,
     get_cache_dir,
+    get_cache_variant,
 )
 from picho.builtin.tool.extension.read.custom import (
     ReadExtension,
@@ -24,6 +25,7 @@ __all__ = [
     "convert_to_markdown",
     "convert_to_markdown_async",
     "get_cache_dir",
+    "get_cache_variant",
     "ReadExtension",
     "ReadExtensionContext",
     "load_read_extensions",

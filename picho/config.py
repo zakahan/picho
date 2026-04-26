@@ -72,11 +72,78 @@ class ReadVideoCompressionConfig:
 
 
 @dataclass
+class ReadVolcengineAsrConfig:
+    tos_bucket: str | None = None
+    tos_bucket_env: str = "DEFAULT_TOS_BUCKET"
+    tos_region: str = "cn-beijing"
+    tos_access_key_env: str = "VOLCENGINE_ACCESS_KEY"
+    tos_secret_key_env: str = "VOLCENGINE_SECRET_KEY"
+    speech_api_key_env: str = "VOLCENGINE_SPEECH_API_KEY"
+    sample_rate: int = 16000
+    channel: int = 1
+    codec: Literal["raw", "opus"] = "raw"
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "ReadVolcengineAsrConfig":
+        if data is None:
+            return cls()
+        return cls(
+            tos_bucket=data.get("tos_bucket"),
+            tos_bucket_env=data.get("tos_bucket_env", "DEFAULT_TOS_BUCKET"),
+            tos_region=data.get("tos_region", "cn-beijing"),
+            tos_access_key_env=data.get("tos_access_key_env", "VOLCENGINE_ACCESS_KEY"),
+            tos_secret_key_env=data.get("tos_secret_key_env", "VOLCENGINE_SECRET_KEY"),
+            speech_api_key_env=data.get(
+                "speech_api_key_env", "VOLCENGINE_SPEECH_API_KEY"
+            ),
+            sample_rate=data.get("sample_rate", 16000),
+            channel=data.get("channel", 1),
+            codec=data.get("codec", "raw"),
+        )
+
+
+@dataclass
+class ReadAudioAsrConfig:
+    provider: Literal["mock", "volcengine"] = "mock"
+    language: str | None = None
+    enable_punc: bool = False
+    enable_itn: bool = True
+    enable_ddc: bool = False
+    enable_speaker_info: bool = False
+    include_utterances: bool = True
+    include_words: bool = False
+    vad_segment: bool = False
+    timeout_seconds: int = 60
+    poll_interval_seconds: int = 2
+    volcengine: ReadVolcengineAsrConfig = field(default_factory=ReadVolcengineAsrConfig)
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "ReadAudioAsrConfig":
+        if data is None:
+            return cls()
+        return cls(
+            provider=data.get("provider", "mock"),
+            language=data.get("language"),
+            enable_punc=data.get("enable_punc", False),
+            enable_itn=data.get("enable_itn", True),
+            enable_ddc=data.get("enable_ddc", False),
+            enable_speaker_info=data.get("enable_speaker_info", False),
+            include_utterances=data.get("include_utterances", True),
+            include_words=data.get("include_words", False),
+            vad_segment=data.get("vad_segment", False),
+            timeout_seconds=data.get("timeout_seconds", 60),
+            poll_interval_seconds=data.get("poll_interval_seconds", 2),
+            volcengine=ReadVolcengineAsrConfig.from_dict(data.get("volcengine")),
+        )
+
+
+@dataclass
 class ReadToolConfig:
     extensions: list[str] = field(default_factory=list)
     video_compression: ReadVideoCompressionConfig = field(
         default_factory=ReadVideoCompressionConfig
     )
+    audio_asr: ReadAudioAsrConfig = field(default_factory=ReadAudioAsrConfig)
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "ReadToolConfig":
@@ -87,6 +154,7 @@ class ReadToolConfig:
             video_compression=ReadVideoCompressionConfig.from_dict(
                 data.get("video_compression")
             ),
+            audio_asr=ReadAudioAsrConfig.from_dict(data.get("audio_asr")),
         )
 
 
