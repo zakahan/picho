@@ -21,6 +21,7 @@ class ChatConfig:
     show_tool_result: ToolDisplayLevel = "off"
     stream_output: bool = True
     prompt_prefix: str = "You"
+    assistant_name: str = "picho"
 
 
 @dataclass
@@ -54,6 +55,7 @@ class CLIConfig:
                 show_tool_result=chat_data.get("show_tool_result", "off"),
                 stream_output=chat_data.get("stream_output", True),
                 prompt_prefix=chat_data.get("prompt_prefix", "You"),
+                assistant_name=chat_data.get("assistant_name", "picho"),
             ),
             display=DisplayConfig(
                 theme=display_data.get("theme", "default"),
@@ -77,6 +79,7 @@ class CLIConfig:
                 "show_tool_result": self.chat.show_tool_result,
                 "stream_output": self.chat.stream_output,
                 "prompt_prefix": self.chat.prompt_prefix,
+                "assistant_name": self.chat.assistant_name,
             },
             "display": {
                 "theme": self.display.theme,
@@ -93,10 +96,26 @@ def get_cli_config_path() -> Path:
     return cwd / ".picho" / "tui.json"
 
 
-def load_cli_config() -> CLIConfig:
-    config_path = get_cli_config_path()
+def get_cli_config_fallback_path() -> Path:
+    return Path.home() / ".picho" / "tui.json"
 
-    if config_path.exists():
+
+def find_cli_config_path() -> Path | None:
+    """Find the active TUI config path.
+
+    Search order mirrors ``chat.find_config()`` for runner config:
+    project-local first, then the user's global ``~/.picho/tui.json``.
+    """
+    for path in (get_cli_config_path(), get_cli_config_fallback_path()):
+        if path.exists():
+            return path
+    return None
+
+
+def load_cli_config() -> CLIConfig:
+    config_path = find_cli_config_path()
+
+    if config_path and config_path.exists():
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -110,7 +129,9 @@ def load_cli_config() -> CLIConfig:
 
 
 def save_cli_config(config: CLIConfig) -> None:
-    config_path = get_cli_config_path()
+    # Save back to whichever config file is currently active. If neither a
+    # local nor global file exists yet, create a new project-local config.
+    config_path = find_cli_config_path() or get_cli_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(config_path, "w", encoding="utf-8") as f:

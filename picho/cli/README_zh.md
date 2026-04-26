@@ -14,7 +14,7 @@ cli/
 ├── main.py                  # CLI 入口点
 ├── chat.py                  # Chat 命令实现
 ├── init.py                  # Init 命令实现
-├── tui.py                   # Textual TUI 实现
+├── tui.py                   # Hermes 风格 chat TUI（prompt_toolkit + rich）
 ├── config.py                # CLI 配置
 ├── confirmation.py          # 确认管理
 └── security_callback.py     # 安全回调处理器
@@ -179,15 +179,25 @@ config = load_cli_config()
 print(config.log.console_output)
 ```
 
+`load_cli_config()` 会按以下顺序查找 TUI 配置：
+
+- 当前目录下的 `.picho/tui.json`
+- 用户目录下的 `~/.picho/tui.json`
+
+如果这两处都不存在，则会在当前目录自动创建默认的 `.picho/tui.json`。
+
 ## TUI 功能
 
-TUI 基于 Textual 构建，提供：
+TUI 基于 `prompt_toolkit`（底部固定的输入框 + 状态栏）和 `rich`
+（启动 banner / 面板）构建，采用 Hermes 风格的金/铜配色，按行流式输出 ANSI。
+提供：
 
-- **可滚动聊天**：浏览完整对话历史
-- **文本选择**：用鼠标选择和复制文本
-- **自动扩展输入框**：输入框随内容增长
-- **状态栏**：显示会话信息和流式状态
-- **确认对话框**：批准/拒绝危险操作
+- **底部固定输入框**：输入框始终钉在底部，上方为滚动对话
+- **实时状态栏**：显示模型、session id、workspace，以及 `STREAMING` / `QUEUED` 指示
+- **流式输出**：assistant 文本和 thinking 逐字符流式显示
+- **工具活动**：`┊ Tool call: ...` / `┊ Tool result: ...` 行内显示
+- **确认栏**：危险操作的 y/n 行内批准
+- **Steering 与 follow-up**：流式中直接输入即为 steer；以 `>` 开头则入队 follow-up
 
 ## 使用示例
 

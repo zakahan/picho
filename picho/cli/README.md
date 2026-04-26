@@ -14,7 +14,7 @@ cli/
 ├── main.py                  # CLI entry point
 ├── chat.py                  # Chat command implementation
 ├── init.py                  # Init command implementation
-├── tui.py                   # Textual TUI implementation
+├── tui.py                   # Hermes-style chat TUI (prompt_toolkit + rich)
 ├── config.py                # CLI configuration
 ├── confirmation.py          # Confirmation management
 └── security_callback.py     # Security callback handlers
@@ -179,15 +179,26 @@ config = load_cli_config()
 print(config.log.console_output)
 ```
 
+`load_cli_config()` searches TUI settings in this order:
+
+- `.picho/tui.json` in the current directory
+- `~/.picho/tui.json` in the user home directory
+
+If neither file exists yet, a default `.picho/tui.json` is created in the
+current directory.
+
 ## TUI Features
 
-The TUI is built with Textual and provides:
+The TUI is built with `prompt_toolkit` (bottom-pinned composer + status bar)
+and `rich` (startup banner / panels), streaming ANSI output line-by-line in a
+Hermes-style gold/bronze theme. It provides:
 
-- **Scrollable Chat**: Browse full conversation history
-- **Text Selection**: Select and copy text with mouse
-- **Auto-expanding Input**: Input box grows with content
-- **Status Bar**: Shows session info and streaming status
-- **Confirmation Dialogs**: Approve/reject dangerous operations
+- **Pinned composer**: input box stays at the bottom while the transcript scrolls above
+- **Live status bar**: model, session id, workspace, `STREAMING` / `QUEUED` indicators
+- **Streaming output**: assistant text and thinking stream character-by-character
+- **Tool activity feed**: `┊ Tool call: ...` / `┊ Tool result: ...` lines
+- **Confirmation bar**: inline y/n approval for dangerous operations
+- **Steering & follow-up**: type while streaming to steer; prefix with `>` to queue a follow-up
 
 ## Usage Examples
 

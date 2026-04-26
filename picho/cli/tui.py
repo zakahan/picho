@@ -1,118 +1,189 @@
+"""picho chat TUI.
+
+Hermes-style terminal chat UI built on prompt_toolkit + rich.
+
+This tui implementation is inspired by hermes-agent:
+https://github.com/nousresearch/hermes-agent
+
+Design:
+- A single prompt_toolkit ``Application`` owns the bottom region:
+  input composer + status bar + optional confirmation bar.
+- Everything else (banner, streaming assistant output, tool activity,
+  system messages) is streamed as ANSI text via ``patch_stdout`` +
+  ``print_formatted_text(ANSI(...))`` so the input area stays pinned
+  at the bottom.
+- The runner's event subscription drives rendering. Streaming deltas
+  are appended in-place on the current line (no widget replacement),
+  terminated on ``message_end``/``turn_end``.
+- ChatTUI keeps the same public API as before (``await chat_tui.run()``),
+  so cli/chat.py does not need to change.
+"""
+
+from __future__ import annotations
+
 import asyncio
+import io
+import shutil
+import threading
 import traceback
-from typing import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable
 
-from textual.app import App, ComposeResult
-from textual.widgets import Input, Label, Static
-from textual.containers import Vertical
-from textual.widget import Widget
-from textual import events
+from prompt_toolkit import print_formatted_text
+from prompt_toolkit.application import Application
+from prompt_toolkit.enums import EditingMode
+from prompt_toolkit.filters import Condition
+from prompt_toolkit.formatted_text import ANSI, FormattedText
+from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import (
+    ConditionalContainer,
+    FormattedTextControl,
+    HSplit,
+    Layout,
+    Window,
+    VSplit,
+)
+from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.widgets import TextArea
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text as RichText
 
-from ..runner import Runner, SessionState
 from ..agent import AgentEvent
 from ..logger import get_logger, log_exception
+from ..runner import Runner, SessionState
 from .config import CLIConfig, format_for_display
 from .confirmation import ConfirmationManager, ConfirmationRequest
 
 _log = get_logger(__name__)
 
 
-class ChatWidget(Widget):
-    DEFAULT_CSS = """
-    ChatWidget {
-        height: 1fr;
-        border: solid black;
-        border-title-align: center;
-        overflow-y: scroll;
-    }
+# ---------------------------------------------------------------------------
+# Theme (hermes-style default skin; extension point kept for future skins)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Theme:
+    gold: str = "#FFD700"
+    amber: str = "#FFBF00"
+    bronze: str = "#CD7F32"
+    dark_gold: str = "#B8860B"
+    cornsilk: str = "#FFF8DC"
+    dim: str = "#8B8682"
+    label: str = "#DAA520"
+    ok: str = "#8FBC8F"
+    warn: str = "#FFD700"
+    error: str = "#FF6B6B"
+    muted: str = "#C0C0C0"
+    panel_border: str = "#CD7F32"
+    response_border: str = "#FFD700"
+    status_bar_bg: str = "#1A1A2E"
+
+
+THEME = Theme()
+
+
+# ---------------------------------------------------------------------------
+# ANSI helpers (direct ANSI avoids rich.Live/full-screen state management)
+# ---------------------------------------------------------------------------
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _fg(hex_color: str, *, bold: bool = False) -> str:
+    r, g, b = _hex_to_rgb(hex_color)
+    prefix = "\033[1;" if bold else "\033[0;"
+    return f"{prefix}38;2;{r};{g};{b}m"
+
+
+RESET = "\033[0m"
+DIM = "\033[2m"
+
+
+def ansi(text: str, hex_color: str, *, bold: bool = False) -> str:
+    return f"{_fg(hex_color, bold=bold)}{text}{RESET}"
+
+
+def cprint(text: str) -> None:
+    """Print an ANSI-colored line through prompt_toolkit's renderer."""
+    print_formatted_text(ANSI(text))
+
+
+# ---------------------------------------------------------------------------
+# Banner (rich Panel rendered once to ANSI at startup)
+# ---------------------------------------------------------------------------
+
+
+def _render_banner(session_id: str, model_name: str, workspace: str) -> str:
+    """Render the startup banner as ANSI text via rich."""
+    workspace_path = Path(workspace) if workspace else Path("-")
+    workspace_label = workspace_path.name or str(workspace_path)
+
+    width = max(60, min(shutil.get_terminal_size((100, 24)).columns - 2, 110))
+    console = Console(
+        file=io.StringIO(),
+        force_terminal=True,
+        color_system="truecolor",
+        width=width,
+        legacy_windows=False,
+    )
+
+    body = RichText()
+    body.append("⚕ picho chat", style=f"bold {THEME.gold}")
+    body.append("   ")
+    body.append("Hermes-style coding terminal", style=f"italic {THEME.dim}")
+    body.append("\n")
+    body.append("model ", style=THEME.label)
+    body.append(model_name, style=THEME.cornsilk)
+    body.append("   │   ", style=THEME.bronze)
+    body.append("session ", style=THEME.label)
+    body.append(session_id[:12], style=THEME.dim)
+    body.append("\n")
+    body.append("workspace ", style=THEME.label)
+    body.append(workspace_label, style=THEME.cornsilk)
+    body.append("   │   ", style=THEME.bronze)
+    body.append(str(workspace_path), style=THEME.dim)
+    body.append("\n\n")
+    body.append(
+        "Type your message, use /help for commands, Ctrl+C to abort, Ctrl+D to quit.",
+        style=THEME.dim,
+    )
+
+    panel = Panel(
+        body,
+        border_style=THEME.panel_border,
+        padding=(0, 2),
+        title=RichText(" Messenger of the Code ", style=f"bold {THEME.amber}"),
+        subtitle=RichText(session_id, style=THEME.dim),
+        subtitle_align="right",
+    )
+    console.print(panel)
+    return console.file.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Chat application
+# ---------------------------------------------------------------------------
+
+
+class ChatApp:
+    """Hermes-style chat TUI driven by runner events.
+
+    Rendering model:
+    - Scrollback (assistant text, tool activity, system messages, errors)
+      is streamed as ANSI to stdout via ``patch_stdout``.
+    - The bottom-pinned region is a prompt_toolkit Application with:
+        * a single-line status bar
+        * a confirmation prompt bar (visible only in confirmation mode)
+        * a TextArea input composer
     """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._code_lines: list[str] = []
-        self._content = Static("", id="chat-content")
-        self.border_title = "Chat (Scroll: Up/Down, Page Up/Down)"
-
-    def compose(self) -> ComposeResult:
-        yield self._content
-
-    def update_content(self, text: str) -> None:
-        self._content.update(text)
-
-
-class StatusBar(Widget):
-    DEFAULT_CSS = """
-    StatusBar {
-        height: 1;
-    }
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._label = Label("Ready", id="status-label")
-
-    def compose(self) -> ComposeResult:
-        yield self._label
-
-    def update_text(self, text: str) -> None:
-        self._label.update(text)
-
-    def set_style(self, _is_streaming: bool = False, _is_warning: bool = False) -> None:
-        pass
-
-
-class InputWidget(Widget):
-    DEFAULT_CSS = """
-    InputWidget {
-        height: auto;
-        min-height: 3;
-        border: solid black;
-        border-title-align: center;
-    }
-    
-    InputWidget Input {
-        width: 100%;
-        height: auto;
-        min-height: 1;
-        border: none;
-    }
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._input = Input(placeholder="", id="chat-input")
-        self.border_title = "Input (Enter=send, Ctrl+C=abort, Ctrl+D=quit)"
-
-    def compose(self) -> ComposeResult:
-        yield self._input
-
-    @property
-    def text(self) -> str:
-        return self._input.value
-
-    @text.setter
-    def text(self, value: str) -> None:
-        self._input.value = value
-
-    def focus(self) -> None:
-        self._input.focus()
-
-
-class ChatApp(App):
-    CSS = """
-    #main-container {
-        height: 100%;
-        width: 100%;
-    }
-    
-    Vertical {
-        height: 100%;
-        width: 100%;
-    }
-    """
-    CSS_PATH = None
-    TITLE = ""
-    SUB_TITLE = ""
 
     def __init__(
         self,
@@ -121,260 +192,643 @@ class ChatApp(App):
         config: CLIConfig,
         confirmation_manager: ConfirmationManager | None = None,
     ):
-        super().__init__(ansi_color=True)
         self.runner = runner
         self.session_id = session_id
         self.config = config
-        self.running = True
-        self._unsubscribe: Callable | None = None
         self.confirmation_manager = confirmation_manager
 
-        self._code_lines: list[str] = []
-        self._in_thinking = False
-        self._current_assistant_text = ""
+        self.running = True
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._unsubscribe: Callable[[], None] | None = None
+
+        # Streaming state
+        # We stream by *line*: accumulate incoming deltas in _stream_buf and
+        # only print through prompt_toolkit once a newline arrives (or the
+        # message ends). Directly writing partial lines to stdout under
+        # ``patch_stdout`` is unsafe — prompt_toolkit redraws the bottom
+        # region on every flush and may swallow unterminated lines.
+        self._stream_kind: str | None = None  # "thinking" | "assistant" | None
+        self._stream_buf: str = ""
+        self._stream_segment_has_output: bool = False
+        # Whether a ``╭─ picho ─...─╮`` top bar has been printed for the
+        # current assistant turn but the matching bottom bar hasn't been
+        # printed yet. Used to group thinking + content inside one frame.
+        self._assistant_frame_open: bool = False
+        # Tracks which kinds we have already shown inside the current
+        # assistant frame. When ``thinking`` is followed by ``assistant``
+        # we insert a thin divider between them.
+        self._frame_kinds_seen: set[str] = set()
+        self._output_lock = threading.Lock()
+
+        # Confirmation state
         self._pending_confirmation: ConfirmationRequest | None = None
         self._confirmation_mode = False
 
-    def compose(self) -> ComposeResult:
-        with Vertical(id="main-container"):
-            yield ChatWidget(id="chat-widget")
-            yield StatusBar(id="status-bar")
-            yield InputWidget(id="input-widget")
-
-    async def on_mount(self) -> None:
-        _log.debug("ChatApp on_mount start")
-        self._code_widget = self.query_one("#chat-widget", ChatWidget)
-        self._status_bar = self.query_one("#status-bar", StatusBar)
-        self._input_widget = self.query_one("#input-widget", InputWidget)
-        self._input_widget.focus()
-        _log.debug("Widgets initialized")
-
-        self._add_system_message(
-            "Welcome to picho!\n"
-            "Type your message and press Enter to send.\n"
-            "Use /help for available commands."
+        # prompt_toolkit UI
+        self._kb = KeyBindings()
+        self._input = TextArea(
+            height=Dimension(min=1, max=8),
+            prompt=self._input_prompt,
+            multiline=True,
+            wrap_lines=True,
+            accept_handler=self._on_accept,
+            history=InMemoryHistory(),
+            style=f"fg:{THEME.cornsilk}",
         )
 
-        _log.debug("Subscribing to current session")
-        self._subscribe_current()
-
-        if self.confirmation_manager:
-            _log.debug("Setting up confirmation manager callback")
-            self.confirmation_manager.set_on_request(self._show_confirmation_request)
-
-        _log.debug("Starting tick task")
-        asyncio.create_task(self._tick())
-        _log.debug("ChatApp on_mount complete")
-
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        _log.debug(
-            f"Input submitted: value_len={len(event.value)} confirmation_mode={self._confirmation_mode}"
+        self._status_control = FormattedTextControl(
+            text=self._build_status_fragments, focusable=False
         )
-        if event.input.id == "chat-input":
-            if self._confirmation_mode:
-                self._handle_confirmation_input(event.value)
-            elif event.value:
-                self._process_input(event.value)
-                self._input_widget.text = ""
+        self._confirm_control = FormattedTextControl(
+            text=self._build_confirmation_fragments, focusable=False
+        )
 
-    async def on_key(self, event: events.Key) -> None:
-        if event.key == "ctrl+c":
-            event.stop()
+        self._bind_keys()
+
+        layout = Layout(
+            HSplit(
+                [
+                    # Confirmation bar (only visible during confirmation mode)
+                    ConditionalContainer(
+                        Window(
+                            content=self._confirm_control,
+                            height=1,
+                            style=f"bg:{THEME.status_bar_bg}",
+                        ),
+                        filter=Condition(lambda: self._confirmation_mode),
+                    ),
+                    # Status bar
+                    Window(
+                        content=self._status_control,
+                        height=1,
+                        style=f"bg:{THEME.status_bar_bg}",
+                    ),
+                    # Input composer
+                    VSplit(
+                        [
+                            Window(
+                                width=2,
+                                content=FormattedTextControl(
+                                    text=lambda: [("", "")],
+                                ),
+                            ),
+                            self._input,
+                        ]
+                    ),
+                ]
+            ),
+            focused_element=self._input,
+        )
+
+        self._app: Application = Application(
+            layout=layout,
+            key_bindings=self._kb,
+            full_screen=False,
+            mouse_support=False,
+            editing_mode=EditingMode.EMACS,
+        )
+
+    # ---- prompt_toolkit callbacks --------------------------------------
+
+    def _input_prompt(self) -> FormattedText:
+        symbol = "› " if not self._confirmation_mode else "? "
+        color = THEME.gold if not self._confirmation_mode else THEME.warn
+        return FormattedText([(f"bold fg:{color}", symbol)])
+
+    def _build_status_fragments(self) -> FormattedText:
+        state = self.runner.get_session(self.session_id)
+        model_name = "unknown"
+        workspace = "-"
+        assistant_name = self.config.chat.assistant_name or "picho"
+        if state:
+            model = state.agent.state.model
+            model_name = getattr(model, "model_name", "unknown")
+            workspace = state.workspace or "-"
+
+        is_streaming = self.runner.is_streaming(self.session_id)
+        has_queued = self.runner.has_queued_messages(self.session_id)
+        workspace_label = Path(workspace).name or workspace
+
+        sep = (f"fg:{THEME.bronze}", " │ ")
+        fragments: list[tuple[str, str]] = [
+            (f"fg:{THEME.bronze}", " ─ "),
+            (f"bold fg:{THEME.gold}", assistant_name),
+            sep,
+            (f"fg:{THEME.cornsilk}", model_name),
+            sep,
+            (f"fg:{THEME.dim}", self.session_id[:12]),
+            sep,
+            (f"fg:{THEME.label}", workspace_label),
+        ]
+        if is_streaming:
+            fragments += [sep, (f"bold fg:{THEME.ok}", "● STREAMING")]
+        if has_queued:
+            fragments += [sep, (f"bold fg:{THEME.warn}", "◆ QUEUED")]
+        fragments += [
+            sep,
+            (
+                f"fg:{THEME.dim}",
+                "Enter send · Alt+Enter newline · Ctrl+C abort · Ctrl+D quit",
+            ),
+        ]
+        return FormattedText(fragments)
+
+    def _build_confirmation_fragments(self) -> FormattedText:
+        title = self._pending_confirmation.title if self._pending_confirmation else ""
+        return FormattedText(
+            [
+                (f"fg:{THEME.bronze}", " ─ "),
+                (f"bold fg:{THEME.warn}", "CONFIRM"),
+                (f"fg:{THEME.bronze}", " │ "),
+                (f"fg:{THEME.cornsilk}", title[:60]),
+                (f"fg:{THEME.bronze}", " │ "),
+                (f"fg:{THEME.ok}", "[y] approve"),
+                (f"fg:{THEME.bronze}", "  "),
+                (f"fg:{THEME.error}", "[n] reject"),
+                (f"fg:{THEME.bronze}", "  "),
+                (f"fg:{THEME.dim}", "Ctrl+C reject"),
+            ]
+        )
+
+    def _bind_keys(self) -> None:
+        kb = self._kb
+
+        @kb.add("c-c")
+        def _(event) -> None:
             if self._confirmation_mode:
                 self._handle_confirmation_reject()
-            elif self.runner.is_streaming(self.session_id):
+                return
+            if self.runner.is_streaming(self.session_id):
                 self.runner.abort(self.session_id)
-                self._add_system_message("Aborted current streaming")
+                self._emit_system("Aborted current streaming")
             else:
-                self._add_system_message("Press Ctrl+D to quit")
-        elif event.key == "ctrl+d":
-            event.stop()
-            self.running = False
-            self.exit()
-        elif event.key == "y" and self._confirmation_mode:
-            event.stop()
-            self._handle_confirmation_approve()
-        elif event.key == "n" and self._confirmation_mode:
-            event.stop()
-            self._handle_confirmation_reject()
+                self._emit_system("Press Ctrl+D to quit")
 
-    async def _tick(self) -> None:
-        while self.running:
-            self._update_status()
-            await asyncio.sleep(0.1)
+        @kb.add("c-d")
+        def _(event) -> None:
+            self.running = False
+            event.app.exit()
+
+        # Enter: submit the current input.
+        #
+        # With ``TextArea(multiline=True)`` the default Enter handler
+        # inserts a newline (no auto-submit). We override Enter to run
+        # the accept_handler, matching hermes' Enter-to-send convention.
+        @kb.add("enter")
+        def _(event) -> None:
+            buf = event.current_buffer
+            if not self._on_accept(buf):
+                # ``_on_accept`` already consumed the text; nothing else
+                # to do. Returning False keeps the buffer empty.
+                pass
+
+        # Alt+Enter / Ctrl+J / Ctrl+Enter → insert a newline.
+        #
+        # Most terminals do NOT distinguish Shift+Enter from Enter at
+        # the byte level, so we can't reliably bind Shift+Enter. Users
+        # who want "Shift+Enter = newline" can configure their terminal
+        # to send ESC+Enter (e.g. iTerm2 "Natural Text Editing") which
+        # arrives here as escape+enter, or simply use Alt+Enter / Ctrl+J.
+        @kb.add("escape", "enter")
+        @kb.add("c-j")
+        def _(event) -> None:
+            event.current_buffer.insert_text("\n")
+
+        # Quick y/n keys while in confirmation mode and input is empty
+        @kb.add("y", filter=Condition(lambda: self._confirmation_mode))
+        def _(event) -> None:
+            if not self._input.text:
+                self._handle_confirmation_approve()
+            else:
+                event.app.current_buffer.insert_text("y")
+
+        @kb.add("n", filter=Condition(lambda: self._confirmation_mode))
+        def _(event) -> None:
+            if not self._input.text:
+                self._handle_confirmation_reject()
+            else:
+                event.app.current_buffer.insert_text("n")
+
+    def _on_accept(self, buff) -> bool:
+        text = buff.text
+        buff.reset()
+        if not text:
+            return False
+        if self._confirmation_mode:
+            self._handle_confirmation_input(text)
+        else:
+            self._process_input(text)
+        return False
+
+    # ---- output helpers ------------------------------------------------
+
+    def _emit(self, text: str) -> None:
+        """Write an ANSI line to scrollback, safely from any thread."""
+        with self._output_lock:
+            try:
+                cprint(text)
+            except Exception:
+                # Fallback: plain write
+                print(text, flush=True)
+
+    # ---- streaming helpers --------------------------------------------
+    #
+    # Why line-buffered instead of raw writes?
+    #
+    # prompt_toolkit's ``patch_stdout`` collects whatever is written to
+    # ``sys.stdout`` and re-emits it *above* the persistent bottom region
+    # on each render tick. A partial line (no trailing ``\n``) stays in
+    # an internal buffer and can be visually overwritten when the bottom
+    # region refreshes, which manifests as "only the last few characters
+    # survived" — exactly the drop we saw with doubao's token-by-token
+    # streaming. By buffering until a newline arrives we only ever hand
+    # prompt_toolkit complete lines, which are always safe to re-emit.
+
+    def _stream_prefix_head(self, kind: str) -> str:
+        # Inside an assistant frame, streaming lines have no left gutter —
+        # the ``╭─ picho ─...─╮`` top bar already marks the block, and
+        # content is allowed to use the full width. Thinking lines get a
+        # faint ``⋯`` on the first line only, as a visual hint.
+        if kind == "thinking":
+            return ansi("⋯ ", THEME.dim)
+        return ""
+
+    def _stream_prefix_cont(self, kind: str) -> str:
+        if kind == "thinking":
+            return ansi("  ", THEME.dim)
+        return ""
+
+    def _stream_body_color(self, kind: str) -> str:
+        return THEME.dim if kind == "thinking" else THEME.cornsilk
+
+    def _print_stream_line(self, kind: str, body: str, *, is_head: bool) -> None:
+        prefix = (
+            self._stream_prefix_head(kind)
+            if is_head
+            else self._stream_prefix_cont(kind)
+        )
+        color = self._stream_body_color(kind)
+        self._emit(f"{prefix}{ansi(body, color)}")
+
+    def _flush_stream(self, *, close: bool) -> None:
+        """Emit any buffered partial stream line.
+
+        When ``close`` is True we finalize the current stream segment:
+        the trailing partial line (if any) is printed as a complete line
+        and internal state is reset so the next delta starts a fresh
+        prefixed block.
+        """
+        if self._stream_kind is None:
+            return
+        kind = self._stream_kind
+        buf = self._stream_buf
+        if buf:
+            # Emit any completed lines first. This happens when the last
+            # delta contained a newline mid-string; those lines would
+            # already have been printed by ``_append_stream_delta`` — so
+            # here ``buf`` is always the "current incomplete line".
+            # When closing, treat it as a full final line.
+            if close:
+                # Head vs. cont is derived from whether *this* segment has
+                # already printed at least one line.
+                self._print_stream_line(
+                    kind, buf, is_head=not self._stream_segment_has_output
+                )
+                self._stream_buf = ""
+        if close:
+            self._stream_kind = None
+            self._stream_buf = ""
+            self._stream_segment_has_output = False
+
+    def _append_stream_delta(self, kind: str, delta: str) -> None:
+        """Feed one streaming delta into the line buffer.
+
+        - Switches segment if ``kind`` changes (flushes previous kind).
+        - Any complete lines (terminated by ``\\n``) are printed through
+          ``print_formatted_text`` so ``patch_stdout`` sees whole lines.
+        - A trailing partial line stays in ``_stream_buf`` and will be
+          printed on the next newline, the next kind switch, or when
+          ``_flush_stream(close=True)`` is called at message/turn end.
+        - When the assistant frame isn't open yet, the first delta of a
+          turn opens it with the ``╭─ picho ─...─╮`` top bar. When the
+          kind changes *within* an already-open frame (typically from
+          ``thinking`` to ``assistant``), a thin divider is drawn so the
+          two segments are visually separated.
+        """
+        if not delta:
+            return
+        if self._stream_kind is not None and self._stream_kind != kind:
+            self._flush_stream(close=True)
+        # Ensure the frame is open and decide whether a divider is needed
+        # before starting the new segment.
+        if not self._assistant_frame_open:
+            self._open_assistant_frame()
+        if kind not in self._frame_kinds_seen and self._frame_kinds_seen:
+            # Moving into a new kind inside the same frame — draw a divider.
+            self._draw_frame_divider()
+
+        if self._stream_kind is None:
+            self._stream_kind = kind
+            self._stream_buf = ""
+            self._stream_segment_has_output = False
+
+        self._frame_kinds_seen.add(kind)
+        self._stream_buf += delta
+        # Emit every complete line we now have.
+        while True:
+            idx = self._stream_buf.find("\n")
+            if idx < 0:
+                break
+            line = self._stream_buf[:idx]
+            self._stream_buf = self._stream_buf[idx + 1 :]
+            self._print_stream_line(
+                kind, line, is_head=not self._stream_segment_has_output
+            )
+            self._stream_segment_has_output = True
+
+    def _close_streaming_line(self) -> None:
+        """Finalize any in-progress streaming output."""
+        self._flush_stream(close=True)
+
+    # ---- assistant frame (top/bottom bars around a turn) ---------------
+
+    def _frame_width(self) -> int:
+        try:
+            cols = shutil.get_terminal_size((100, 24)).columns
+        except Exception:
+            cols = 100
+        return max(40, min(cols, 120))
+
+    def _open_assistant_frame(self) -> None:
+        """Print the ``╭─ picho ─...─╮`` top bar for a fresh assistant turn."""
+        if self._assistant_frame_open:
+            return
+        name = self.config.chat.assistant_name or "picho"
+        width = self._frame_width()
+        # "╭─ picho ─" + fill "─" + "─╮"
+        head = f"╭─ {name} ─"
+        tail = "─╮"
+        fill = "─" * max(1, width - len(head) - len(tail))
+        bar = head + fill + tail
+        self._emit(ansi(bar, THEME.response_border, bold=True))
+        self._assistant_frame_open = True
+        self._frame_kinds_seen = set()
+
+    def _close_assistant_frame(self, usage_text: str | None = None) -> None:
+        """Print the ``╰─ ... tokens ─╯`` bottom bar if a frame is open."""
+        if not self._assistant_frame_open:
+            return
+        width = self._frame_width()
+        head = "╰─"
+        tail = "─╯"
+        if usage_text:
+            middle = f"─ {usage_text} ─"
+            fill_len = max(1, width - len(head) - len(middle) - len(tail))
+            bar = head + "─" * fill_len + middle + tail
+        else:
+            fill = "─" * max(1, width - len(head) - len(tail))
+            bar = head + fill + tail
+        self._emit(ansi(bar, THEME.response_border, bold=True))
+        self._assistant_frame_open = False
+        self._frame_kinds_seen = set()
+
+    def _draw_frame_divider(self) -> None:
+        """A dashed divider used between thinking and content inside a frame."""
+        width = self._frame_width()
+        bar = ("╌" * ((width + 1) // 2))[:width]
+        self._emit(ansi(bar, THEME.bronze))
+
+    def _format_usage(self, usage: Any) -> str | None:
+        """Build a compact ``tokens in=X out=Y cache=Z`` suffix string.
+
+        Returns ``None`` when no usage info is available. Falls back to
+        individual attributes if a field is missing — different providers
+        expose slightly different shapes (e.g. some lack cache_* fields).
+        """
+        if usage is None:
+            return None
+        try:
+            in_t = int(getattr(usage, "input_tokens", 0) or 0)
+            out_t = int(getattr(usage, "output_tokens", 0) or 0)
+            cache_r = int(getattr(usage, "cache_read", 0) or 0)
+            cache_w = int(getattr(usage, "cache_write", 0) or 0)
+        except Exception:
+            return None
+        if in_t == 0 and out_t == 0 and cache_r == 0 and cache_w == 0:
+            return None
+        parts = [f"in={in_t}", f"out={out_t}"]
+        if cache_r or cache_w:
+            parts.append(f"cache r={cache_r} w={cache_w}")
+        return "tokens " + " ".join(parts)
+
+    # ---- plain emitters ------------------------------------------------
+
+    def _emit_user(self, text: str) -> None:
+        self._close_streaming_line()
+        self._close_assistant_frame()
+        prefix = ansi("● ", THEME.amber, bold=True)
+        for i, line in enumerate(text.splitlines() or [""]):
+            cont = prefix if i == 0 else ansi("  ", THEME.amber)
+            self._emit(f"{cont}{ansi(line, THEME.cornsilk)}")
+
+    def _emit_system(self, text: str) -> None:
+        self._close_streaming_line()
+        self._close_assistant_frame()
+        prefix = ansi("│ ", THEME.bronze)
+        for i, line in enumerate(text.splitlines() or [""]):
+            cont = prefix if i == 0 else ansi("  ", THEME.bronze)
+            self._emit(f"{cont}{ansi(line, THEME.dark_gold)}")
+
+    def _emit_error(self, text: str) -> None:
+        self._close_streaming_line()
+        self._close_assistant_frame()
+        prefix = ansi("✗ ", THEME.error, bold=True)
+        for i, line in enumerate(text.splitlines() or [""]):
+            cont = prefix if i == 0 else ansi("  ", THEME.error)
+            self._emit(f"{cont}{ansi(line, THEME.error)}")
+
+    def _emit_assistant_full(self, text: str) -> None:
+        """Render a complete assistant message (used when replaying history)."""
+        self._close_streaming_line()
+        self._close_assistant_frame()
+        self._open_assistant_frame()
+        for line in text.splitlines() or [""]:
+            self._emit(ansi(line, THEME.cornsilk))
+        self._close_assistant_frame()
+
+    def _emit_tool_call(self, title: str, details: str | None, error: bool) -> None:
+        self._close_streaming_line()
+        self._close_assistant_frame()
+        color = THEME.error if error else THEME.amber
+        body_color = THEME.error if error else THEME.cornsilk
+        self._emit(f"{ansi('┊ ', color)}{ansi(title, body_color, bold=True)}")
+        if details:
+            for line in details.splitlines():
+                self._emit(f"{ansi('  ', color)}{ansi(line, THEME.dim)}")
+
+    def _emit_confirmation_result(self, approved: bool, title: str) -> None:
+        self._close_streaming_line()
+        self._close_assistant_frame()
+        if approved:
+            mark = ansi("✓ ", THEME.ok, bold=True)
+            self._emit(f"{mark}{ansi('Approved: ' + title, THEME.cornsilk)}")
+        else:
+            mark = ansi("✗ ", THEME.error, bold=True)
+            self._emit(f"{mark}{ansi('Rejected: ' + title, THEME.cornsilk)}")
+
+    # ---- confirmation handling -----------------------------------------
+
+    def _show_confirmation_request(self, request: ConfirmationRequest) -> None:
+        self._pending_confirmation = request
+        self._confirmation_mode = True
+        self._close_streaming_line()
+
+        self._emit(
+            f"{ansi('! ', THEME.warn, bold=True)}{ansi(request.title, THEME.cornsilk, bold=True)}"
+        )
+        for line in (request.message or "").splitlines():
+            self._emit(f"{ansi('  ', THEME.dark_gold)}{ansi(line, THEME.muted)}")
+        self._emit(
+            f"{ansi('  ', THEME.dark_gold)}"
+            f"{ansi('[y] approve   [n] reject   Ctrl+C reject', THEME.dim)}"
+        )
+        self._request_refresh()
 
     def _handle_confirmation_approve(self) -> None:
         if self._pending_confirmation:
             title = self._pending_confirmation.title
             self._pending_confirmation.approve()
-            self._code_lines.append(f"\n  ✓ Confirmed: {title}")
-            self._update_code_display()
+            self._emit_confirmation_result(True, title)
             self._pending_confirmation = None
             self._confirmation_mode = False
-            self._update_confirmation_display()
+            self._request_refresh()
 
     def _handle_confirmation_reject(self) -> None:
         if self._pending_confirmation:
             title = self._pending_confirmation.title
             self._pending_confirmation.reject()
-            self._code_lines.append(f"\n  ✗ Rejected: {title}")
-            self._update_code_display()
+            self._emit_confirmation_result(False, title)
             self._pending_confirmation = None
             self._confirmation_mode = False
-            self._update_confirmation_display()
+            self._request_refresh()
 
     def _handle_confirmation_input(self, text: str) -> None:
-        text = text.strip().lower()
-        if text in ("y", "yes"):
+        t = text.strip().lower()
+        if t in ("y", "yes"):
             self._handle_confirmation_approve()
-        elif text in ("n", "no"):
+        elif t in ("n", "no"):
             self._handle_confirmation_reject()
         else:
-            self._add_system_message("Please enter 'y' or 'n'")
-        self._input_widget.text = ""
+            self._emit_system("Please answer 'y' or 'n'")
 
-    def _show_confirmation_request(self, request: ConfirmationRequest) -> None:
-        self._pending_confirmation = request
-        self._confirmation_mode = True
-
-        separator = "\n" + "─" * 60
-        self._code_lines.append(separator)
-        self._code_lines.append(f"\n⚠️  {request.title}")
-        self._code_lines.append("")
-        for line in request.message.split("\n"):
-            self._code_lines.append(f"  {line}")
-        self._code_lines.append("")
-        self._code_lines.append("  [y] Yes, execute this command")
-        self._code_lines.append("  [n] No, reject this command")
-        self._code_lines.append("  [Ctrl+C] Reject")
-        self._code_lines.append(separator)
-
-        self._update_code_display()
-        self._update_confirmation_display()
-
-    def _update_confirmation_display(self) -> None:
-        if self._confirmation_mode and self._pending_confirmation:
-            self._status_bar.update_text(
-                "⚠️  CONFIRMATION REQUIRED: [y]=Yes, [n]=No, [Ctrl+C]=Reject"
-            )
-            self._status_bar.set_style(is_warning=True)
-            self._input_widget.text = ""
-        else:
-            self._update_status()
+    # ---- user input dispatch -------------------------------------------
 
     def _process_input(self, text: str) -> None:
         text = text.strip()
         if not text:
             return
-
         if text.startswith("/"):
             self._handle_command(text)
         else:
-            asyncio.create_task(self._handle_message(text))
+            loop = self._loop or asyncio.get_event_loop()
+            asyncio.run_coroutine_threadsafe(self._handle_message(text), loop)
 
     def _handle_command(self, cmd: str) -> None:
-        _log.debug(f"Handling command: {cmd}")
         parts = cmd.split(maxsplit=2)
         command = parts[0].lower()
         args = parts[1] if len(parts) > 1 else None
+
         if command in ("/quit", "/q"):
             self.running = False
-            self.exit()
-        elif command == "/abort":
+            self._app.exit()
+            return
+
+        if command == "/abort":
             if self.runner.is_streaming(self.session_id):
                 self.runner.abort(self.session_id)
-                self._add_system_message("Aborted current streaming")
+                self._emit_system("Aborted current streaming")
             else:
-                self._add_system_message("No active streaming to abort")
-        elif command == "/new":
+                self._emit_system("No active streaming to abort")
+            return
+
+        if command == "/new":
             self.session_id = self.runner.create_session()
             self._subscribe_current()
-            self._code_lines.clear()
-            self._update_code_display()
-            self._add_system_message(f"Created session: {self.session_id}")
-        elif command == "/sessions":
+            self._emit_system(f"Created session: {self.session_id}")
+            self._request_refresh()
+            return
+
+        if command == "/sessions":
             limit = None
             if args:
                 try:
                     limit = int(args)
                 except ValueError:
-                    pass
-
+                    limit = None
             sessions = self.runner.list_persisted_sessions(limit)
             if not sessions:
-                self._add_system_message("No sessions found")
-            else:
-                lines = [f"Sessions (showing {len(sessions)}):"]
-                for s in sessions:
-                    current = " *" if s["session_id"] == self.session_id else ""
-                    first_msg = s.get("first_message", "")[:50]
-                    if len(s.get("first_message", "")) > 50:
-                        first_msg += "..."
-                    lines.append(f"  {s['session_id']}{current}")
-                    lines.append(
-                        f"    Messages: {s['message_count']}, First: {first_msg}"
-                    )
-                self._add_system_message("\n".join(lines))
-        elif command == "/checkout":
-            if not args:
-                self._add_system_message("Usage: /checkout <session_id>")
+                self._emit_system("No sessions found")
                 return
+            lines = [f"Sessions (showing {len(sessions)}):"]
+            for s in sessions:
+                mark = " *" if s["session_id"] == self.session_id else ""
+                first = (s.get("first_message") or "")[:50]
+                if len(s.get("first_message") or "") > 50:
+                    first += "..."
+                lines.append(f"  {s['session_id']}{mark}")
+                lines.append(f"    Messages: {s['message_count']}, First: {first}")
+            self._emit_system("\n".join(lines))
+            return
 
+        if command == "/checkout":
+            if not args:
+                self._emit_system("Usage: /checkout <session_id>")
+                return
             target_id = args.strip()
-
             if self.runner.has_session(target_id):
                 self.session_id = target_id
                 self._subscribe_current()
-                self._code_lines.clear()
-                self._update_code_display()
-                self._add_system_message(f"Switched to session: {target_id}")
-            else:
-                sessions = self.runner.list_persisted_sessions()
-                session_file = None
-                for s in sessions:
-                    if s["session_id"] == target_id:
-                        session_file = s["session_file"]
-                        break
+                self._emit_system(f"Switched to session: {target_id}")
+                self._request_refresh()
+                return
+            sessions = self.runner.list_persisted_sessions()
+            session_file = next(
+                (s["session_file"] for s in sessions if s["session_id"] == target_id),
+                None,
+            )
+            if not session_file:
+                self._emit_system(f"Session not found: {target_id}")
+                return
+            try:
+                self.session_id = self.runner.load_session(session_file)
+                self._subscribe_current()
+                state = self.runner.get_session(self.session_id)
+                if state:
+                    for entry in state.session.get_entries():
+                        msg = getattr(entry, "message", None)
+                        if not msg:
+                            continue
+                        role = msg.get("role", "unknown")
+                        if role == "user":
+                            self._emit_user(
+                                self._extract_text_content(msg.get("content", ""))
+                            )
+                        elif role == "assistant":
+                            err = msg.get("error_message")
+                            if err:
+                                self._emit_error(err)
+                            else:
+                                self._emit_assistant_full(
+                                    self._extract_text_content(msg.get("content", ""))
+                                )
+                self._emit_system(f"Loaded session: {target_id}")
+                self._request_refresh()
+            except Exception as e:
+                self._emit_system(f"Failed to load session: {e}")
+            return
 
-                if not session_file:
-                    self._add_system_message(f"Session not found: {target_id}")
-                    return
-
-                try:
-                    self.session_id = self.runner.load_session(session_file)
-                    self._subscribe_current()
-                    self._code_lines.clear()
-                    self._update_code_display()
-
-                    state = self.runner.get_session(self.session_id)
-                    if state:
-                        for entry in state.session.get_entries():
-                            if hasattr(entry, "message") and entry.message:
-                                msg = entry.message
-                                role = msg.get("role", "unknown")
-                                if role == "user":
-                                    content = self._extract_text_content(
-                                        msg.get("content", "")
-                                    )
-                                    self._code_lines.append(f"\nYou: {content}")
-                                elif role == "assistant":
-                                    error_message = msg.get("error_message")
-                                    if error_message:
-                                        self._add_error_message(error_message)
-                                    else:
-                                        content = self._extract_text_content(
-                                            msg.get("content", "")
-                                        )
-                                        self._code_lines.append(
-                                            f"\nAssistant: {content}"
-                                        )
-                        self._update_code_display()
-
-                    self._add_system_message(f"Loaded session: {target_id}")
-                except Exception as e:
-                    self._add_system_message(f"Failed to load session: {e}")
-        elif command == "/agent":
-            state: SessionState = self.runner.get_session(self.session_id)
+        if command == "/agent":
+            state: SessionState | None = self.runner.get_session(self.session_id)
             if state:
                 agent = state.agent
                 model = agent.state.model
@@ -384,9 +838,11 @@ class ChatApp(App):
                     f"  Streaming: {agent.state.is_streaming}",
                     f"  Has Queued: {agent.has_queued_messages()}",
                 ]
-                self._add_system_message("\n".join(lines))
-        elif command == "/help":
-            self._add_system_message(
+                self._emit_system("\n".join(lines))
+            return
+
+        if command == "/help":
+            self._emit_system(
                 "Commands:\n"
                 "  /quit, /q        - Exit\n"
                 "  /abort           - Abort current streaming\n"
@@ -395,18 +851,47 @@ class ChatApp(App):
                 "  /checkout <id>   - Switch to session\n"
                 "  /agent           - Show agent info\n"
                 "  /help            - Show this help\n\n"
-                "Navigation:\n"
-                "  Up/Down          - Scroll chat\n"
-                "  Page Up/Down     - Scroll by page\n"
-                "  Home/End         - Scroll to top/bottom\n\n"
+                "Input keys:\n"
+                "  Enter            - Send\n"
+                "  Alt+Enter / Ctrl+J - Insert newline (multi-line input)\n"
+                "  Ctrl+C           - Abort streaming / reject confirmation\n"
+                "  Ctrl+D           - Quit\n\n"
                 "During streaming:\n"
                 "  Normal input = steer (interrupt)\n"
                 "  > prefix = follow-up (after current turn)"
             )
-        else:
-            self._add_system_message(f"Unknown command: {command}")
+            return
 
-    def _extract_text_content(self, content) -> str:
+        self._emit_system(f"Unknown command: {command}")
+
+    async def _handle_message(self, message: str) -> None:
+        is_follow_up = message.startswith(">")
+        if is_follow_up:
+            message = message[1:].strip()
+
+        is_streaming = self.runner.is_streaming(self.session_id)
+        if not is_streaming:
+            self._emit_user(message)
+
+        try:
+            if is_streaming:
+                if is_follow_up:
+                    self.runner.follow_up(self.session_id, message)
+                    self._emit_system("Follow-up queued")
+                else:
+                    self.runner.steer(self.session_id, message)
+                    self._emit_user(message + " [steering]")
+            else:
+                await self.runner.prompt(self.session_id, message)
+        except Exception as e:
+            log_exception(_log, "Failed to send message", e)
+            self._emit_error(f"Error: {e}\n{traceback.format_exc()}")
+        finally:
+            self._request_refresh()
+
+    # ---- runner event subscription -------------------------------------
+
+    def _extract_text_content(self, content: Any) -> str:
         if isinstance(content, str):
             return content
         if isinstance(content, list):
@@ -419,191 +904,183 @@ class ChatApp(App):
             return " ".join(texts)
         return str(content)
 
-    def _display_assistant_error(self, error_message: str) -> None:
-        self._in_thinking = False
-        self._current_assistant_text = ""
-        self._add_error_message(error_message)
-
-    async def _handle_message(self, message: str) -> None:
-        _log.debug(
-            f"Handling message: is_follow_up={message.startswith('>')} message_len={len(message)}"
-        )
-        is_follow_up = message.startswith(">")
-        if is_follow_up:
-            message = message[1:].strip()
-
-        is_streaming = self.runner.is_streaming(self.session_id)
-        _log.debug(f"Current streaming state: {is_streaming}")
-
-        if not is_streaming:
-            self._add_user_message(message)
-
-        try:
-            if is_streaming:
-                if is_follow_up:
-                    _log.debug("Queuing follow-up message")
-                    self.runner.follow_up(self.session_id, message)
-                    self._add_system_message("Follow-up queued")
-                else:
-                    _log.debug("Sending steering message")
-                    self.runner.steer(self.session_id, message)
-                    self._add_user_message(message + " [steering]")
-            else:
-                _log.debug("Sending prompt message")
-                await self.runner.prompt(self.session_id, message)
-            _log.debug("Message sent successfully")
-        except Exception as e:
-            _log.error(f"Failed to send message: {e}")
-            self._add_error_message(f"Error: {e}\n{traceback.format_exc()}")
-
-    def _add_user_message(self, text: str) -> None:
-        self._code_lines.append(f"\nYou: {text}")
-        self._update_code_display()
-
-    def _add_system_message(self, text: str) -> None:
-        self._code_lines.append(f"\n[System] {text}")
-        self._update_code_display()
-
-    def _add_error_message(self, text: str) -> None:
-        self._code_lines.append(f"\n[Error] {text}")
-        self._update_code_display()
-
-    def _update_code_display(self) -> None:
-        text = "\n".join(self._code_lines)
-        self._code_widget.update_content(text)
-        self._code_widget.scroll_end()
-
-    def _update_status(self) -> None:
-        is_streaming = self.runner.is_streaming(self.session_id)
-        has_queued = self.runner.has_queued_messages(self.session_id)
-
-        status_parts = [f"Session: {self.session_id[:8]}..."]
-        if is_streaming:
-            status_parts.append("[STREAMING]")
-        if has_queued:
-            status_parts.append("[QUEUED]")
-
-        self._status_bar.update_text(" | ".join(status_parts))
-        self._status_bar.set_style(is_streaming=is_streaming)
-
     def _subscribe_current(self) -> None:
         if self._unsubscribe:
-            self._unsubscribe()
+            try:
+                self._unsubscribe()
+            except Exception:
+                pass
+            self._unsubscribe = None
 
         config = self.config
 
         def on_event(event: AgentEvent) -> None:
             try:
-                if event.type == "thinking_delta":
+                etype = event.type
+
+                if etype == "thinking_delta":
                     if not config.chat.show_thinking:
                         return
-                    assistant_event = getattr(event, "assistant_event", None)
-                    if assistant_event:
-                        data = getattr(assistant_event, "data", None)
-                        if data:
-                            delta = getattr(data, "delta", "")
-                            if delta:
-                                if not self._in_thinking:
-                                    self._code_lines.append("\n[Thinking] ")
-                                    self._in_thinking = True
-                                self._code_lines[-1] += delta
-                                self._update_code_display()
+                    delta = self._delta_from_event(event)
+                    if not delta:
+                        return
+                    self._append_stream_delta("thinking", delta)
 
-                elif event.type == "content_delta":
-                    if self._in_thinking:
-                        self._in_thinking = False
-                    assistant_event = getattr(event, "assistant_event", None)
-                    if assistant_event:
-                        data = getattr(assistant_event, "data", None)
-                        if data:
-                            delta = getattr(data, "delta", "")
-                            if delta:
-                                if not self._current_assistant_text:
-                                    self._code_lines.append("\nAssistant: ")
-                                self._current_assistant_text += delta
-                                self._code_lines[-1] = (
-                                    "\nAssistant: " + self._current_assistant_text
-                                )
-                                self._update_code_display()
+                elif etype == "content_delta":
+                    delta = self._delta_from_event(event)
+                    if not delta:
+                        return
+                    self._append_stream_delta("assistant", delta)
 
-                elif event.type == "message_end" and event.message:
-                    self._in_thinking = False
-                    self._current_assistant_text = ""
-                    if getattr(event.message, "role", "") == "assistant":
-                        error_message = getattr(event.message, "error_message", None)
-                        if error_message:
-                            self._display_assistant_error(error_message)
-
-                elif event.type == "tool_execution_start":
-                    if config.chat.show_tool_execution:
-                        tool_name = getattr(event, "tool_name", "unknown")
-                        self._code_lines.append(f"\n[Tool] Executing: {tool_name}")
-                        if config.chat.show_tool_args != "off":
-                            args = getattr(event, "args", {})
-                            if args:
-                                import json
-
-                                args_str = json.dumps(args, ensure_ascii=False)
-                                display_str = format_for_display(
-                                    args_str, config.chat.show_tool_args, max_chars=50
-                                )
-                                if display_str:
-                                    self._code_lines.append(f"  Args: {display_str}")
-                        self._update_code_display()
-
-                elif event.type == "tool_execution_end":
-                    if (
-                        config.chat.show_tool_execution
-                        and config.chat.show_tool_result != "off"
-                    ):
-                        result = getattr(event, "result", None)
-                        is_error = (
-                            getattr(result, "is_error", False) if result else False
+                elif etype == "message_end" and event.message:
+                    # Flush any buffered streaming text, then close the
+                    # assistant frame with a token-usage subtitle.
+                    self._close_streaming_line()
+                    role = getattr(event.message, "role", "")
+                    if role == "assistant":
+                        err = getattr(event.message, "error_message", None)
+                        usage_text = self._format_usage(
+                            getattr(event.message, "usage", None)
                         )
-                        if result:
-                            content = getattr(result, "content", None)
-                            if content and hasattr(content, "__iter__"):
-                                texts = []
-                                for item in content:
-                                    if hasattr(item, "text"):
-                                        texts.append(item.text)
-                                if texts:
-                                    result_str = "\n".join(texts)
-                                    if is_error:
-                                        display_str = result_str
-                                    else:
-                                        display_str = format_for_display(
-                                            result_str,
-                                            config.chat.show_tool_result,
-                                            max_chars=500,
-                                        )
-                                    if display_str:
-                                        label = "Error" if is_error else "Result"
-                                        self._code_lines.append(
-                                            f"  {label}: {display_str}"
-                                        )
-                                        self._update_code_display()
+                        self._close_assistant_frame(usage_text=usage_text)
+                        if err:
+                            self._emit_error(err)
+                    else:
+                        # Non-assistant message_end — make sure no stray
+                        # frame stays open.
+                        self._close_assistant_frame()
 
-                elif event.type == "turn_end":
-                    self._code_lines.append("")
-                    self._update_code_display()
+                elif etype == "tool_execution_start":
+                    if not config.chat.show_tool_execution:
+                        return
+                    tool_name = getattr(event, "tool_name", "unknown")
+                    details = None
+                    if config.chat.show_tool_args != "off":
+                        args = getattr(event, "args", {})
+                        if args:
+                            import json
 
-                self._update_status()
-            except Exception as e:
-                log_exception(_log, f"Error handling event {event.type}", e)
+                            args_str = json.dumps(args, ensure_ascii=False)
+                            shown = format_for_display(
+                                args_str, config.chat.show_tool_args, max_chars=120
+                            )
+                            if shown:
+                                details = f"Args: {shown}"
+                    self._emit_tool_call(
+                        f"Tool call: {tool_name}", details, error=False
+                    )
+
+                elif etype == "tool_execution_end":
+                    if (
+                        not config.chat.show_tool_execution
+                        or config.chat.show_tool_result == "off"
+                    ):
+                        return
+                    result = getattr(event, "result", None)
+                    if not result:
+                        return
+                    is_error = bool(getattr(result, "is_error", False))
+                    content = getattr(result, "content", None)
+                    if not content or not hasattr(content, "__iter__"):
+                        return
+                    texts = [
+                        getattr(item, "text", "")
+                        for item in content
+                        if hasattr(item, "text")
+                    ]
+                    if not texts:
+                        return
+                    result_str = "\n".join(t for t in texts if t)
+                    if is_error:
+                        shown = result_str
+                    else:
+                        shown = format_for_display(
+                            result_str, config.chat.show_tool_result, max_chars=500
+                        )
+                    if shown:
+                        label = "Tool error" if is_error else "Tool result"
+                        self._emit_tool_call(label, shown, error=is_error)
+
+                elif etype == "turn_end":
+                    # Safety net: close any stray frame that didn't get
+                    # closed via ``message_end`` (e.g. abort / error).
+                    self._close_streaming_line()
+                    if self._assistant_frame_open:
+                        self._close_assistant_frame()
+
+                self._request_refresh()
+            except Exception as exc:
+                log_exception(_log, f"Error handling event {event.type}", exc)
 
         self._unsubscribe = self.runner.subscribe(self.session_id, on_event)
+        self._request_refresh()
+
+    @staticmethod
+    def _delta_from_event(event: AgentEvent) -> str:
+        assistant_event = getattr(event, "assistant_event", None)
+        if not assistant_event:
+            return ""
+        data = getattr(assistant_event, "data", None)
+        if not data:
+            return ""
+        return getattr(data, "delta", "") or ""
+
+    # ---- lifecycle -----------------------------------------------------
+
+    def _request_refresh(self) -> None:
+        try:
+            self._app.invalidate()
+        except Exception:
+            pass
+
+    async def _ticker(self) -> None:
+        """Periodic status-bar refresh (streaming/queued indicators)."""
+        while self.running:
+            await asyncio.sleep(0.2)
+            self._request_refresh()
 
     async def run(self) -> None:
+        self._loop = asyncio.get_running_loop()
+
+        # Print banner (once, before the Application takes the screen).
+        state = self.runner.get_session(self.session_id)
+        model_name = "unknown"
+        workspace = "-"
+        if state:
+            model = state.agent.state.model
+            model_name = getattr(model, "model_name", "unknown")
+            workspace = state.workspace or "-"
+        banner = _render_banner(self.session_id, model_name, workspace)
+        print(banner, end="", flush=True)
+
+        # Subscribe to runner events and wire confirmation bridge.
+        self._subscribe_current()
+        if self.confirmation_manager:
+            self.confirmation_manager.set_on_request(self._show_confirmation_request)
+
+        self._emit_system(
+            "Welcome to picho. Type your message or use /help for commands."
+        )
+
+        ticker_task = asyncio.create_task(self._ticker())
+
         try:
-            await super().run_async()
+            with patch_stdout(raw=True):
+                await self._app.run_async()
         finally:
             self.running = False
+            ticker_task.cancel()
             if self._unsubscribe:
-                self._unsubscribe()
+                try:
+                    self._unsubscribe()
+                except Exception:
+                    pass
+                self._unsubscribe = None
 
 
 class ChatTUI:
+    """Public entry point, kept API-compatible with the previous Textual TUI."""
+
     def __init__(
         self,
         runner: Runner,
