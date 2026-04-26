@@ -20,10 +20,13 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from picho.config import ReadToolConfig
 from picho.builtin.tool.extension.read.parser import (
     Chunk,
     ChunkType,
     DOCUMENT_PARSERS,
+    SUPPORTED_AUDIO_EXTENSIONS,
+    parse_audio,
 )
 
 
@@ -31,7 +34,11 @@ DOCUMENT_FILE = "document.md"
 METADATA_FILE = "metadata.json"
 
 
-def get_cache_dir(file_path: str, workspace: str) -> Path:
+def get_cache_dir(
+    file_path: str,
+    workspace: str,
+    variant: str | None = None,
+) -> Path:
     """
     Get cache directory path for a file.
 
@@ -40,7 +47,8 @@ def get_cache_dir(file_path: str, workspace: str) -> Path:
     """
     p = Path(file_path)
     mtime = p.stat().st_mtime
-    cache_key = hashlib.md5(f"{file_path}:{mtime}".encode()).hexdigest()
+    variant_key = f":{variant}" if variant else ""
+    cache_key = hashlib.md5(f"{file_path}:{mtime}{variant_key}".encode()).hexdigest()
     cache_dir = Path(workspace) / ".picho" / "cache" / "files" / cache_key
     return cache_dir
 
@@ -117,15 +125,21 @@ def chunks_to_markdown(chunks: list[Chunk]) -> str:
 async def convert_to_markdown_async(
     file_path: str,
     workspace: str,
+    read_config: ReadToolConfig | None = None,
     signal=None,
 ) -> str:
     """
     Run document conversion in a worker thread so abort signals can interrupt the
     await path even when PDF/DOCX parsing is CPU/IO heavy.
     """
-    conversion_task = asyncio.create_task(
-        asyncio.to_thread(convert_to_markdown, file_path, workspace)
-    )
+    if read_config is None:
+        conversion_task = asyncio.create_task(
+            asyncio.to_thread(convert_to_markdown, file_path, workspace)
+        )
+    else:
+        conversion_task = asyncio.create_task(
+            asyncio.to_thread(convert_to_markdown, file_path, workspace, read_config)
+        )
     if signal is None:
         return await conversion_task
 
@@ -157,9 +171,13 @@ async def convert_to_markdown_async(
                 pass
 
 
-def convert_to_markdown(file_path: str, workspace: str) -> str:
+def convert_to_markdown(
+    file_path: str,
+    workspace: str,
+    read_config: ReadToolConfig | None = None,
+) -> str:
     """
-    Convert a PDF or DOCX file to markdown.
+    Convert a supported rich file to markdown.
 
     Args:
         file_path: Path to the file to convert
@@ -168,7 +186,8 @@ def convert_to_markdown(file_path: str, workspace: str) -> str:
     Returns:
         Markdown content as string
     """
-    cache_dir = get_cache_dir(file_path, workspace)
+    cache_variant = get_cache_variant(file_path, read_config)
+    cache_dir = get_cache_dir(file_path, workspace, variant=cache_variant)
 
     cached = read_cache(cache_dir)
     if cached is not None:
@@ -177,12 +196,46 @@ def convert_to_markdown(file_path: str, workspace: str) -> str:
     ext = Path(file_path).suffix.lower()
     image_dir = str(cache_dir)
 
-    parser = DOCUMENT_PARSERS.get(ext)
-    if parser is None:
-        raise ValueError(f"Unsupported file type: {ext}")
-    chunks = parser(file_path, image_dir)
+    if ext in SUPPORTED_AUDIO_EXTENSIONS:
+        markdown = parse_audio(
+            file_path,
+            read_config.audio_asr if read_config else None,
+        )
+    else:
+        parser = DOCUMENT_PARSERS.get(ext)
+        if parser is None:
+            raise ValueError(f"Unsupported file type: {ext}")
+        chunks = parser(file_path, image_dir)
+        markdown = chunks_to_markdown(chunks)
 
-    markdown = chunks_to_markdown(chunks)
     save_cache(cache_dir, markdown, file_path, ext)
 
     return markdown
+
+
+def get_cache_variant(
+    file_path: str,
+    read_config: ReadToolConfig | None = None,
+) -> str | None:
+    ext = Path(file_path).suffix.lower()
+    if ext not in SUPPORTED_AUDIO_EXTENSIONS:
+        return None
+
+    audio_config = read_config.audio_asr if read_config else None
+    if audio_config is None:
+        return "audio:provider=mock"
+
+    return "|".join(
+        [
+            "audio",
+            f"provider={audio_config.provider}",
+            f"language={audio_config.language or ''}",
+            f"enable_punc={audio_config.enable_punc}",
+            f"enable_itn={audio_config.enable_itn}",
+            f"enable_ddc={audio_config.enable_ddc}",
+            f"enable_speaker_info={audio_config.enable_speaker_info}",
+            f"include_utterances={audio_config.include_utterances}",
+            f"include_words={audio_config.include_words}",
+            f"vad_segment={audio_config.vad_segment}",
+        ]
+    )

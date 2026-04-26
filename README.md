@@ -12,9 +12,10 @@ In many frameworks, reading a PDF or DOCX file takes two steps: find the appropr
 
 - Supports text and images.
 - After installing the extension dependencies, it can read PDF and DOCX directly.
+- WAV and MP3 files can be transcribed through the read tool. The ASR backend is configurable, with built-in `mock` and `volcengine` providers.
 - Video support is also specially optimized. `picho` includes a dedicated video compression step that is transparent to the model. This extends the practical size limit for video reading, allowing the model to handle larger files after compression.
   - Note: this optimization currently works only with Ark models.
-- Support for more file types such as audio and PPTX is planned.
+- Support for more file types such as PPTX is planned.
 
 For the extension layer, you do not have to use the built-in `read` extensions. You can write your own read extensions to support new file types, or replace the existing read pipeline altogether.
 
@@ -241,7 +242,7 @@ Module responsibilities:
 The relationship between builtin tools, skills, and built-in `read` can be summarized as follows:
 
 - `builtin tool` is the actual executable capability layer, such as `read`, `write`, `edit`, and `bash`.
-- Built-in `read` is the default first-class file reading path. It is suitable for directly reading text, images, and, through extensions, PDF, DOCX, video, and more.
+- Built-in `read` is the default first-class file reading path. It is suitable for directly reading text, images, audio, and, through extensions, PDF, DOCX, video, and more.
 - `skill` is closer to a task-level instruction template or workflow wrapper. It is suitable for code review, debugging, domain analysis, and more complex file-processing flows.
 - They are complementary rather than competing: content that can be read directly should go to `read` first; when a task requires specialized procedures, extra rules, domain knowledge, or multi-step orchestration, a skill is the better fit.
   - A more personal way to describe this distinction is: built-in `read` is like a pair of eyes, used to observe the things on Earth; a file-oriented skill is more like a telescope, something you pick up when you need to look at the stars or handle more distant and specialized targets. In our view, they should serve different layers of problems. They are not in conflict, and ordinary reading should not be offloaded to a skill by default, because that would be overkill.

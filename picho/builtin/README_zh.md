@@ -30,7 +30,7 @@ builtin/
 
 ### read - 读取文件
 
-读取文件内容，支持文本、图片、视频、PDF 和 DOCX：
+读取文件内容，支持文本、图片、视频、音频、PDF 和 DOCX：
 
 ```python
 # 参数
@@ -46,6 +46,7 @@ builtin/
 - 支持图片文件（jpg, png, gif, webp）
 - 支持视频文件（mp4, mov, avi, mkv, webm）
 - PDF/DOCX 会转换为 markdown，并缓存到 `.picho/cache/files`
+- WAV/MP3 会转写为 markdown，并缓存到 `.picho/cache/files`
 - 默认启用的视频压缩：当视频超过阈值时，自动使用 `ffmpeg` 保留音频并压缩后再读取；可通过 `tool_config.read.video_compression.enabled=false` 关闭
 - 可通过 `tool_config.read.extensions` 注册用户自定义读取扩展
 - 支持分页读取
@@ -53,7 +54,38 @@ builtin/
 行为说明：
 - `文件不存在`等常规工具错误会以错误文本结果返回，不再直接向 agent 暴露 Python traceback
 - abort 信号会继续按取消语义向上传播，由 agent loop 统一生成 aborted 结果
-- PDF/DOCX 转换等待过程现在能响应 abort；底层工作线程仍可能在后台自然结束
+- PDF/DOCX 和音频转换等待过程现在能响应 abort；底层工作线程仍可能在后台自然结束
+
+音频 ASR 配置示例：
+
+```json
+{
+  "agent": {
+    "builtin": {
+      "tool_config": {
+        "read": {
+          "audio_asr": {
+            "provider": "volcengine",
+            "language": "zh-CN",
+            "enable_punc": true,
+            "volcengine": {
+              "tos_bucket": "my-bucket",
+              "tos_region": "cn-beijing"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+说明：
+- `audio_asr.provider` 可选 `mock` 或 `volcengine`，默认是 `mock`。
+- Volcengine provider 会先把本地音频上传到 TOS，再把公开 URL 提交给豆包录音文件识别。
+- Volcengine 凭证从环境变量读取：`VOLCENGINE_ACCESS_KEY`、`VOLCENGINE_SECRET_KEY`、`VOLCENGINE_SPEECH_API_KEY`。
+- 如果省略 `audio_asr.volcengine.tos_bucket`，会使用 `DEFAULT_TOS_BUCKET`。
+- 每个 provider 的详细文档位于 `tool/extension/read/parser/audio/*.md`。
 
 视频压缩配置示例：
 

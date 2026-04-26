@@ -23,7 +23,7 @@ from .extension.read import (
     find_read_extension,
     load_read_extensions,
 )
-from .extension.read.parser import SUPPORTED_DOCUMENT_EXTENSIONS
+from .extension.read.parser import SUPPORTED_CONVERTIBLE_EXTENSIONS
 
 _log = get_logger(__name__)
 
@@ -66,7 +66,7 @@ def judge_file_type(file_path: str) -> str:
     Determine file type based on file path.
 
     :param file_path: Full path of the file
-    :return: "extra" (pdf/docx), "image", "video", "not_supported", "not_exist", or "text"
+    :return: "extra" (rich files), "image", "video", "not_supported", "not_exist", or "text"
     """
     path = Path(file_path)
 
@@ -92,7 +92,7 @@ def judge_file_type(file_path: str) -> str:
         ".iso",
     }
 
-    if file_ext in SUPPORTED_DOCUMENT_EXTENSIONS:
+    if file_ext in SUPPORTED_CONVERTIBLE_EXTENSIONS:
         return "extra"
     elif file_ext in IMAGE_MIME_TYPES:
         return "image"
@@ -226,13 +226,14 @@ def create_read_tool(
             )
 
         if file_type == "extra":
-            _log.debug(f"Processing extra file type (PDF/DOCX): {path}")
+            _log.debug(f"Processing convertible file type: {path}")
             import traceback
 
             try:
                 from picho.builtin.tool.extension.read import (
                     convert_to_markdown_async,
                     get_cache_dir,
+                    get_cache_variant,
                 )
             except ImportError as e:
                 _log.error(f"Extra dependencies not installed: {e}")
@@ -240,7 +241,7 @@ def create_read_tool(
                     content=[
                         TextContent(
                             type="text",
-                            text="PDF/DOCX support requires optional dependency group `super-reader`. "
+                            text="Rich file support requires optional dependency group `super-reader` for PDF/DOCX. "
                             'Install with: uv add picho["super-reader"] '
                             "or pip install 'picho[super-reader]'"
                             f"\n\nError: {e}",
@@ -253,6 +254,7 @@ def create_read_tool(
                 md_content = await convert_to_markdown_async(
                     resolved_path,
                     cache_base,
+                    read_config=read_config,
                     signal=signal,
                 )
             except Exception as e:
@@ -264,7 +266,11 @@ def create_read_tool(
                     ],
                     is_error=True,
                 )
-            cache_dir = get_cache_dir(resolved_path, cache_base)
+            cache_dir = get_cache_dir(
+                resolved_path,
+                cache_base,
+                variant=get_cache_variant(resolved_path, read_config),
+            )
             lines = md_content.split("\n")
             total_file_lines = len(lines)
             _log.debug(f"Converted markdown lines: {total_file_lines}")
@@ -315,7 +321,9 @@ def create_read_tool(
                 next_offset = actual_end_line + 1
                 output_text += f". Use offset={next_offset} to continue"
 
-            _log.debug(f"Execute read success (extra file) tool_call_id={tool_call_id}")
+            _log.debug(
+                f"Execute read success (converted file) tool_call_id={tool_call_id}"
+            )
             return ToolResult(
                 content=[TextContent(type="text", text=output_text)],
             )
@@ -561,7 +569,7 @@ def create_read_tool(
 
     return Tool.create(
         name="read",
-        description=f"""Read the contents of a file. Supports text files, images (jpg, png, gif, webp), video (mp4, avi...), PDF and DOCX. Images and Videos are sent as attachments.
+        description=f"""Read the contents of a file. Supports text files, images (jpg, png, gif, webp), video (mp4, avi...), PDF, DOCX, WAV, and MP3. Images and Videos are sent as attachments.
 
 For text files:
 - Output is truncated to {DEFAULT_MAX_LINES} lines or {DEFAULT_MAX_BYTES / 1024:.0f}KB (whichever is hit first)
@@ -571,6 +579,11 @@ For PDF/DOCX files:
 - Files are converted to markdown format
 - offset/limit apply to the converted markdown lines
 - Requires optional dependency group `super-reader`: uv add picho["super-reader"] or pip install 'picho[super-reader]'
+
+For WAV/MP3 files:
+- Files are transcribed with `tool_config.read.audio_asr.provider`
+- Built-in providers: `mock`, `volcengine`
+- offset/limit apply to the converted transcript markdown lines
 
 For video files:
 - Returns the original video by default
@@ -582,7 +595,7 @@ Output format:
 - Complete file: "[Showing lines 1-N of N (complete file)]"
 - Truncated: "[Showing lines X-Y of N. Use offset=Y+1 to continue]"
 - Empty file: "[File is empty: <path>]"
-- PDF/DOCX: "[Converted from .pdf. Showing lines X-Y of N (converted markdown)]"
+- PDF/DOCX/WAV/MP3: "[Converted from .pdf. Showing lines X-Y of N (converted markdown)]"
 
 Note: 
     The tool supports multiple types, 

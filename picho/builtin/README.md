@@ -30,7 +30,7 @@ builtin/
 
 ### read - Read File
 
-Read file contents with support for text, images, videos, PDF, and DOCX:
+Read file contents with support for text, images, videos, audio, PDF, and DOCX:
 
 ```python
 # Parameters
@@ -46,6 +46,7 @@ Features:
 - Image file support (jpg, png, gif, webp)
 - Video file support (mp4, mov, avi, mkv, webm)
 - PDF/DOCX are converted to markdown and cached under `.picho/cache/files`
+- WAV/MP3 are transcribed to markdown and cached under `.picho/cache/files`
 - Video compression is enabled by default: when a video exceeds the configured limit, picho compresses it with `ffmpeg` while keeping audio; set `tool_config.read.video_compression.enabled=false` to disable it
 - Read extensions can handle custom file types
 - Pagination support
@@ -53,7 +54,38 @@ Features:
 Behavior:
 - Missing files and other normal tool errors are returned as error text results instead of Python tracebacks
 - Abort signals propagate as cancellation so the agent loop can emit the standard aborted tool result
-- PDF/DOCX conversion now responds to aborts while waiting on conversion, even though the worker thread may finish in the background
+- PDF/DOCX and audio conversion now respond to aborts while waiting on conversion, even though the worker thread may finish in the background
+
+Audio ASR config example:
+
+```json
+{
+  "agent": {
+    "builtin": {
+      "tool_config": {
+        "read": {
+          "audio_asr": {
+            "provider": "volcengine",
+            "language": "zh-CN",
+            "enable_punc": true,
+            "volcengine": {
+              "tos_bucket": "my-bucket",
+              "tos_region": "cn-beijing"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Notes:
+- `audio_asr.provider` can be `mock` or `volcengine`; the default is `mock`.
+- The Volcengine provider uploads the local audio to TOS and then submits the public URL to Doubao Speech ASR.
+- Volcengine credentials are read from environment variables: `VOLCENGINE_ACCESS_KEY`, `VOLCENGINE_SECRET_KEY`, and `VOLCENGINE_SPEECH_API_KEY`.
+- If `audio_asr.volcengine.tos_bucket` is omitted, `DEFAULT_TOS_BUCKET` is used.
+- Provider-specific docs live under `tool/extension/read/parser/audio/*.md`.
 
 Video compression config example:
 
