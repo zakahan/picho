@@ -90,8 +90,10 @@ DEFAULT_TUI_CONFIG = {
         "prompt_prefix": "You",
     },
     "display": {
-        "theme": "dark",
+        "theme": "default",
         "color_enabled": True,
+        "show_banner": True,
+        "show_usage": True,
     },
     "log": {
         "console_output": False,

@@ -15,6 +15,7 @@ cli/
 ├── chat.py                  # Chat 命令实现
 ├── init.py                  # Init 命令实现
 ├── tui.py                   # Hermes 风格 chat TUI（prompt_toolkit + rich）
+├── tui.md                   # TUI 配置详解
 ├── config.py                # CLI 配置
 ├── confirmation.py          # 确认管理
 └── security_callback.py     # 安全回调处理器
@@ -186,15 +187,21 @@ print(config.log.console_output)
 
 如果这两处都不存在，则会在当前目录自动创建默认的 `.picho/tui.json`。
 
+TUI 配置项的详细说明见：
+
+- [tui.md](./tui.md)
+
 ## TUI 功能
 
 TUI 基于 `prompt_toolkit`（底部固定的输入框 + 状态栏）和 `rich`
-（启动 banner / 面板）构建，采用 Hermes 风格的金/铜配色，按行流式输出 ANSI。
+（启动 banner / 面板）构建，支持多种主题并按行流式输出 ANSI。
 提供：
 
 - **底部固定输入框**：输入框始终钉在底部，上方为滚动对话
 - **实时状态栏**：显示模型、session id、workspace，以及 `STREAMING` / `QUEUED` 指示
 - **流式输出**：assistant 文本和 thinking 逐字符流式显示
+- **主题预设**：支持 `default`、`dark`、`light`、`ocean`、`forest`、`mono`
+- **显示开关**：支持颜色开关、启动 banner 开关、token usage 开关
 - **工具活动**：`┊ Tool call: ...` / `┊ Tool result: ...` 行内显示
 - **确认栏**：危险操作的 y/n 行内批准
 - **Steering 与 follow-up**：流式中直接输入即为 steer；以 `>` 开头则入队 follow-up

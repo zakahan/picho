@@ -11,6 +11,7 @@ from typing import Literal
 
 
 ToolDisplayLevel = Literal["off", "low", "all"]
+DisplayThemeName = Literal["default", "dark", "light", "ocean", "forest", "mono"]
 
 
 @dataclass
@@ -26,8 +27,10 @@ class ChatConfig:
 
 @dataclass
 class DisplayConfig:
-    theme: Literal["default", "dark", "light"] = "default"
+    theme: DisplayThemeName = "default"
     color_enabled: bool = True
+    show_banner: bool = True
+    show_usage: bool = True
 
 
 @dataclass
@@ -60,6 +63,8 @@ class CLIConfig:
             display=DisplayConfig(
                 theme=display_data.get("theme", "default"),
                 color_enabled=display_data.get("color_enabled", True),
+                show_banner=display_data.get("show_banner", True),
+                show_usage=display_data.get("show_usage", True),
             ),
             log=LogConfig(
                 console_output=log_data.get("console_output", False),
@@ -84,6 +89,8 @@ class CLIConfig:
             "display": {
                 "theme": self.display.theme,
                 "color_enabled": self.display.color_enabled,
+                "show_banner": self.display.show_banner,
+                "show_usage": self.display.show_usage,
             },
             "log": {
                 "console_output": self.log.console_output,
