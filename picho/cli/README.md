@@ -15,6 +15,7 @@ cli/
 ├── chat.py                  # Chat command implementation
 ├── init.py                  # Init command implementation
 ├── tui.py                   # Hermes-style chat TUI (prompt_toolkit + rich)
+├── tui.md                   # Detailed TUI config reference
 ├── config.py                # CLI configuration
 ├── confirmation.py          # Confirmation management
 └── security_callback.py     # Security callback handlers
@@ -187,15 +188,21 @@ print(config.log.console_output)
 If neither file exists yet, a default `.picho/tui.json` is created in the
 current directory.
 
+Detailed TUI configuration reference:
+
+- See [tui.md](./tui.md) for the complete `.picho/tui.json` schema and examples.
+
 ## TUI Features
 
 The TUI is built with `prompt_toolkit` (bottom-pinned composer + status bar)
-and `rich` (startup banner / panels), streaming ANSI output line-by-line in a
-Hermes-style gold/bronze theme. It provides:
+and `rich` (startup banner / panels), streaming ANSI output line-by-line with
+configurable themes. It provides:
 
 - **Pinned composer**: input box stays at the bottom while the transcript scrolls above
 - **Live status bar**: model, session id, workspace, `STREAMING` / `QUEUED` indicators
 - **Streaming output**: assistant text and thinking stream character-by-character
+- **Theme presets**: `default`, `dark`, `light`, `ocean`, `forest`, `mono`
+- **Display toggles**: color on/off, startup banner on/off, token usage on/off
 - **Tool activity feed**: `┊ Tool call: ...` / `┊ Tool result: ...` lines
 - **Confirmation bar**: inline y/n approval for dangerous operations
 - **Steering & follow-up**: type while streaming to steer; prefix with `>` to queue a follow-up

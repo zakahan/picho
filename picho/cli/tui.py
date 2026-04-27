@@ -55,7 +55,7 @@ from rich.text import Text as RichText
 from ..agent import AgentEvent
 from ..logger import get_logger, log_exception
 from ..runner import Runner, SessionState
-from .config import CLIConfig, format_for_display
+from .config import CLIConfig, DisplayThemeName, format_for_display
 from .confirmation import ConfirmationManager, ConfirmationRequest
 
 _log = get_logger(__name__)
@@ -84,7 +84,96 @@ class Theme:
     status_bar_bg: str = "#1A1A2E"
 
 
-THEME = Theme()
+THEMES: dict[DisplayThemeName, Theme] = {
+    "default": Theme(),
+    "dark": Theme(
+        gold="#8BD5FF",
+        amber="#66B3FF",
+        bronze="#4B7FB0",
+        dark_gold="#35597A",
+        cornsilk="#EAF4FF",
+        dim="#8CA2B8",
+        label="#5FA8F5",
+        ok="#7FD1AE",
+        warn="#FFD166",
+        error="#FF7B7B",
+        muted="#B8C6D3",
+        panel_border="#4B7FB0",
+        response_border="#8BD5FF",
+        status_bar_bg="#111827",
+    ),
+    "light": Theme(
+        gold="#9A6A00",
+        amber="#A66300",
+        bronze="#8C6239",
+        dark_gold="#6B4F2A",
+        cornsilk="#1F2937",
+        dim="#6B7280",
+        label="#8B5E00",
+        ok="#2E8B57",
+        warn="#B7791F",
+        error="#D14343",
+        muted="#4B5563",
+        panel_border="#C08A3E",
+        response_border="#A66300",
+        status_bar_bg="#F3F4F6",
+    ),
+    "ocean": Theme(
+        gold="#4FD1C5",
+        amber="#38B2AC",
+        bronze="#2C7A7B",
+        dark_gold="#285E61",
+        cornsilk="#E6FFFA",
+        dim="#81A9A8",
+        label="#63B3ED",
+        ok="#68D391",
+        warn="#F6E05E",
+        error="#FC8181",
+        muted="#A0AEC0",
+        panel_border="#2C7A7B",
+        response_border="#4FD1C5",
+        status_bar_bg="#0F2A43",
+    ),
+    "forest": Theme(
+        gold="#8FBC8F",
+        amber="#6FA36F",
+        bronze="#4F7942",
+        dark_gold="#3D5B33",
+        cornsilk="#F0FFF4",
+        dim="#94A98C",
+        label="#7AA874",
+        ok="#9AE6B4",
+        warn="#ECC94B",
+        error="#F56565",
+        muted="#C6D3C2",
+        panel_border="#4F7942",
+        response_border="#8FBC8F",
+        status_bar_bg="#14281D",
+    ),
+    "mono": Theme(
+        gold="#E5E7EB",
+        amber="#D1D5DB",
+        bronze="#9CA3AF",
+        dark_gold="#6B7280",
+        cornsilk="#F9FAFB",
+        dim="#9CA3AF",
+        label="#D1D5DB",
+        ok="#D1FAE5",
+        warn="#FDE68A",
+        error="#FCA5A5",
+        muted="#D1D5DB",
+        panel_border="#9CA3AF",
+        response_border="#E5E7EB",
+        status_bar_bg="#111111",
+    ),
+}
+
+THEME = THEMES["default"]
+COLOR_ENABLED = True
+
+
+def resolve_theme(theme_name: DisplayThemeName | str) -> Theme:
+    return THEMES.get(theme_name, THEMES["default"])
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +187,8 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
 
 
 def _fg(hex_color: str, *, bold: bool = False) -> str:
+    if not COLOR_ENABLED:
+        return ""
     r, g, b = _hex_to_rgb(hex_color)
     prefix = "\033[1;" if bold else "\033[0;"
     return f"{prefix}38;2;{r};{g};{b}m"
@@ -108,7 +199,23 @@ DIM = "\033[2m"
 
 
 def ansi(text: str, hex_color: str, *, bold: bool = False) -> str:
+    if not COLOR_ENABLED:
+        return text
     return f"{_fg(hex_color, bold=bold)}{text}{RESET}"
+
+
+def pt_style(
+    *, fg: str | None = None, bg: str | None = None, bold: bool = False
+) -> str:
+    parts: list[str] = []
+    if bold:
+        parts.append("bold")
+    if COLOR_ENABLED:
+        if fg:
+            parts.append(f"fg:{fg}")
+        if bg:
+            parts.append(f"bg:{bg}")
+    return " ".join(parts)
 
 
 def cprint(text: str) -> None:
@@ -121,7 +228,14 @@ def cprint(text: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _render_banner(session_id: str, model_name: str, workspace: str) -> str:
+def _render_banner(
+    session_id: str,
+    model_name: str,
+    workspace: str,
+    *,
+    theme: Theme,
+    color_enabled: bool,
+) -> str:
     """Render the startup banner as ANSI text via rich."""
     workspace_path = Path(workspace) if workspace else Path("-")
     workspace_label = workspace_path.name or str(workspace_path)
@@ -130,38 +244,38 @@ def _render_banner(session_id: str, model_name: str, workspace: str) -> str:
     console = Console(
         file=io.StringIO(),
         force_terminal=True,
-        color_system="truecolor",
+        color_system="truecolor" if color_enabled else None,
         width=width,
         legacy_windows=False,
     )
 
     body = RichText()
-    body.append("⚕ picho chat", style=f"bold {THEME.gold}")
-    body.append("   ")
-    body.append("Hermes-style coding terminal", style=f"italic {THEME.dim}")
     body.append("\n")
-    body.append("model ", style=THEME.label)
-    body.append(model_name, style=THEME.cornsilk)
-    body.append("   │   ", style=THEME.bronze)
-    body.append("session ", style=THEME.label)
-    body.append(session_id[:12], style=THEME.dim)
+    body.append("model ", style=theme.label if color_enabled else "")
+    body.append(model_name, style=theme.cornsilk if color_enabled else "")
+    body.append("   │   ", style=theme.bronze if color_enabled else "")
+    body.append("session ", style=theme.label if color_enabled else "")
+    body.append(session_id[:12], style=theme.dim if color_enabled else "")
     body.append("\n")
-    body.append("workspace ", style=THEME.label)
-    body.append(workspace_label, style=THEME.cornsilk)
-    body.append("   │   ", style=THEME.bronze)
-    body.append(str(workspace_path), style=THEME.dim)
+    body.append("workspace ", style=theme.label if color_enabled else "")
+    body.append(workspace_label, style=theme.cornsilk if color_enabled else "")
+    body.append("   │   ", style=theme.bronze if color_enabled else "")
+    body.append(str(workspace_path), style=theme.dim if color_enabled else "")
     body.append("\n\n")
     body.append(
         "Type your message, use /help for commands, Ctrl+C to abort, Ctrl+D to quit.",
-        style=THEME.dim,
+        style=theme.dim if color_enabled else "",
     )
 
     panel = Panel(
         body,
-        border_style=THEME.panel_border,
+        border_style=theme.panel_border if color_enabled else "",
         padding=(0, 2),
-        title=RichText(" Messenger of the Code ", style=f"bold {THEME.amber}"),
-        subtitle=RichText(session_id, style=THEME.dim),
+        title=RichText(
+            " Messenger of the Code ",
+            style=f"bold {theme.amber}" if color_enabled else "bold",
+        ),
+        subtitle=RichText(session_id, style=theme.dim if color_enabled else ""),
         subtitle_align="right",
     )
     console.print(panel)
@@ -174,7 +288,7 @@ def _render_banner(session_id: str, model_name: str, workspace: str) -> str:
 
 
 class ChatApp:
-    """Hermes-style chat TUI driven by runner events.
+    """Chat TUI driven by runner events.
 
     Rendering model:
     - Scrollback (assistant text, tool activity, system messages, errors)
@@ -192,10 +306,14 @@ class ChatApp:
         config: CLIConfig,
         confirmation_manager: ConfirmationManager | None = None,
     ):
+        global THEME, COLOR_ENABLED
+
         self.runner = runner
         self.session_id = session_id
         self.config = config
         self.confirmation_manager = confirmation_manager
+        THEME = resolve_theme(config.display.theme)
+        COLOR_ENABLED = config.display.color_enabled
 
         self.running = True
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -233,7 +351,7 @@ class ChatApp:
             wrap_lines=True,
             accept_handler=self._on_accept,
             history=InMemoryHistory(),
-            style=f"fg:{THEME.cornsilk}",
+            style=pt_style(fg=THEME.cornsilk),
         )
 
         self._status_control = FormattedTextControl(
@@ -253,7 +371,7 @@ class ChatApp:
                         Window(
                             content=self._confirm_control,
                             height=1,
-                            style=f"bg:{THEME.status_bar_bg}",
+                            style=pt_style(bg=THEME.status_bar_bg),
                         ),
                         filter=Condition(lambda: self._confirmation_mode),
                     ),
@@ -261,7 +379,7 @@ class ChatApp:
                     Window(
                         content=self._status_control,
                         height=1,
-                        style=f"bg:{THEME.status_bar_bg}",
+                        style=pt_style(bg=THEME.status_bar_bg),
                     ),
                     # Input composer
                     VSplit(
@@ -290,16 +408,24 @@ class ChatApp:
 
     # ---- prompt_toolkit callbacks --------------------------------------
 
+    def _assistant_name(self) -> str:
+        return (self.config.chat.assistant_name or "picho").strip() or "picho"
+
+    def _prompt_prefix(self) -> str:
+        return (self.config.chat.prompt_prefix or "You").strip() or "You"
+
     def _input_prompt(self) -> FormattedText:
-        symbol = "› " if not self._confirmation_mode else "? "
-        color = THEME.gold if not self._confirmation_mode else THEME.warn
-        return FormattedText([(f"bold fg:{color}", symbol)])
+        if self._confirmation_mode:
+            return FormattedText([(pt_style(fg=THEME.warn, bold=True), "Confirm ? ")])
+        return FormattedText(
+            [(pt_style(fg=THEME.gold, bold=True), f"{self._prompt_prefix()} › ")]
+        )
 
     def _build_status_fragments(self) -> FormattedText:
         state = self.runner.get_session(self.session_id)
         model_name = "unknown"
         workspace = "-"
-        assistant_name = self.config.chat.assistant_name or "picho"
+        assistant_name = self._assistant_name()
         if state:
             model = state.agent.state.model
             model_name = getattr(model, "model_name", "unknown")
@@ -309,25 +435,25 @@ class ChatApp:
         has_queued = self.runner.has_queued_messages(self.session_id)
         workspace_label = Path(workspace).name or workspace
 
-        sep = (f"fg:{THEME.bronze}", " │ ")
+        sep = (pt_style(fg=THEME.bronze), " │ ")
         fragments: list[tuple[str, str]] = [
-            (f"fg:{THEME.bronze}", " ─ "),
-            (f"bold fg:{THEME.gold}", assistant_name),
+            (pt_style(fg=THEME.bronze), " ─ "),
+            (pt_style(fg=THEME.gold, bold=True), assistant_name),
             sep,
-            (f"fg:{THEME.cornsilk}", model_name),
+            (pt_style(fg=THEME.cornsilk), model_name),
             sep,
-            (f"fg:{THEME.dim}", self.session_id[:12]),
+            (pt_style(fg=THEME.dim), self.session_id[:12]),
             sep,
-            (f"fg:{THEME.label}", workspace_label),
+            (pt_style(fg=THEME.label), workspace_label),
         ]
         if is_streaming:
-            fragments += [sep, (f"bold fg:{THEME.ok}", "● STREAMING")]
+            fragments += [sep, (pt_style(fg=THEME.ok, bold=True), "● STREAMING")]
         if has_queued:
-            fragments += [sep, (f"bold fg:{THEME.warn}", "◆ QUEUED")]
+            fragments += [sep, (pt_style(fg=THEME.warn, bold=True), "◆ QUEUED")]
         fragments += [
             sep,
             (
-                f"fg:{THEME.dim}",
+                pt_style(fg=THEME.dim),
                 "Enter send · Alt+Enter newline · Ctrl+C abort · Ctrl+D quit",
             ),
         ]
@@ -337,16 +463,16 @@ class ChatApp:
         title = self._pending_confirmation.title if self._pending_confirmation else ""
         return FormattedText(
             [
-                (f"fg:{THEME.bronze}", " ─ "),
-                (f"bold fg:{THEME.warn}", "CONFIRM"),
-                (f"fg:{THEME.bronze}", " │ "),
-                (f"fg:{THEME.cornsilk}", title[:60]),
-                (f"fg:{THEME.bronze}", " │ "),
-                (f"fg:{THEME.ok}", "[y] approve"),
-                (f"fg:{THEME.bronze}", "  "),
-                (f"fg:{THEME.error}", "[n] reject"),
-                (f"fg:{THEME.bronze}", "  "),
-                (f"fg:{THEME.dim}", "Ctrl+C reject"),
+                (pt_style(fg=THEME.bronze), " ─ "),
+                (pt_style(fg=THEME.warn, bold=True), "CONFIRM"),
+                (pt_style(fg=THEME.bronze), " │ "),
+                (pt_style(fg=THEME.cornsilk), title[:60]),
+                (pt_style(fg=THEME.bronze), " │ "),
+                (pt_style(fg=THEME.ok), "[y] approve"),
+                (pt_style(fg=THEME.bronze), "  "),
+                (pt_style(fg=THEME.error), "[n] reject"),
+                (pt_style(fg=THEME.bronze), "  "),
+                (pt_style(fg=THEME.dim), "Ctrl+C reject"),
             ]
         )
 
@@ -354,7 +480,7 @@ class ChatApp:
         kb = self._kb
 
         @kb.add("c-c")
-        def _(event) -> None:
+        def _(_event) -> None:
             if self._confirmation_mode:
                 self._handle_confirmation_reject()
                 return
@@ -578,6 +704,8 @@ class ChatApp:
         """Print the ``╰─ ... tokens ─╯`` bottom bar if a frame is open."""
         if not self._assistant_frame_open:
             return
+        if not self.config.display.show_usage:
+            usage_text = None
         width = self._frame_width()
         head = "╰─"
         tail = "─╯"
@@ -630,6 +758,19 @@ class ChatApp:
         for i, line in enumerate(text.splitlines() or [""]):
             cont = prefix if i == 0 else ansi("  ", THEME.amber)
             self._emit(f"{cont}{ansi(line, THEME.cornsilk)}")
+
+    def _emit_user_block(self, text: str) -> None:
+        self._close_streaming_line()
+        self._close_assistant_frame()
+        name = self._prompt_prefix()
+        width = self._frame_width()
+        head = f"╭─ {name} ─"
+        tail = "─╮"
+        fill = "─" * max(1, width - len(head) - len(tail))
+        self._emit(ansi(head + fill + tail, THEME.amber, bold=True))
+        for line in text.splitlines() or [""]:
+            self._emit(ansi(line, THEME.cornsilk))
+        self._emit(ansi("╰" + ("─" * max(1, width - 2)) + "╯", THEME.amber, bold=True))
 
     def _emit_system(self, text: str) -> None:
         self._close_streaming_line()
@@ -810,7 +951,7 @@ class ChatApp:
                             continue
                         role = msg.get("role", "unknown")
                         if role == "user":
-                            self._emit_user(
+                            self._emit_user_block(
                                 self._extract_text_content(msg.get("content", ""))
                             )
                         elif role == "assistant":
@@ -871,7 +1012,7 @@ class ChatApp:
 
         is_streaming = self.runner.is_streaming(self.session_id)
         if not is_streaming:
-            self._emit_user(message)
+            self._emit_user_block(message)
 
         try:
             if is_streaming:
@@ -880,7 +1021,7 @@ class ChatApp:
                     self._emit_system("Follow-up queued")
                 else:
                     self.runner.steer(self.session_id, message)
-                    self._emit_user(message + " [steering]")
+                    self._emit_user_block(message + " [steering]")
             else:
                 await self.runner.prompt(self.session_id, message)
         except Exception as e:
@@ -924,11 +1065,15 @@ class ChatApp:
                     delta = self._delta_from_event(event)
                     if not delta:
                         return
+                    if not config.chat.stream_output:
+                        return
                     self._append_stream_delta("thinking", delta)
 
                 elif etype == "content_delta":
                     delta = self._delta_from_event(event)
                     if not delta:
+                        return
+                    if not config.chat.stream_output:
                         return
                     self._append_stream_delta("assistant", delta)
 
@@ -939,6 +1084,12 @@ class ChatApp:
                     role = getattr(event.message, "role", "")
                     if role == "assistant":
                         err = getattr(event.message, "error_message", None)
+                        if not config.chat.stream_output and not err:
+                            self._emit_assistant_full(
+                                self._extract_text_content(
+                                    getattr(event.message, "content", "")
+                                )
+                            )
                         usage_text = self._format_usage(
                             getattr(event.message, "usage", None)
                         )
@@ -1050,8 +1201,15 @@ class ChatApp:
             model = state.agent.state.model
             model_name = getattr(model, "model_name", "unknown")
             workspace = state.workspace or "-"
-        banner = _render_banner(self.session_id, model_name, workspace)
-        print(banner, end="", flush=True)
+        if self.config.display.show_banner:
+            banner = _render_banner(
+                self.session_id,
+                model_name,
+                workspace,
+                theme=THEME,
+                color_enabled=COLOR_ENABLED,
+            )
+            print(banner, end="", flush=True)
 
         # Subscribe to runner events and wire confirmation bridge.
         self._subscribe_current()
