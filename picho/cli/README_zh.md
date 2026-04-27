@@ -163,13 +163,13 @@ picho chat -r my_runner.py
         },
         "steering_mode": "one-at-a-time",
         "follow_up_mode": "one-at-a-time"
-    },
-    "session_manager": {
-        "cwd": "/path/to/workspace",
-        "persist": true
     }
 }
 ```
+
+省略 `path` 时，picho 会把 logs、sessions、telemetry、caches 和默认
+skills 放在当前目录的 `.picho` 下。builtin tools 默认在当前目录执行；
+只有需要切换工具 workspace 时才配置 `path.executor`。
 
 ### CLIConfig
 

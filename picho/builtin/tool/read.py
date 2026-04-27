@@ -160,7 +160,7 @@ def create_read_tool(
     """
     Create a read tool for reading file contents.
     """
-    cache_base = cache_root or executor.cwd
+    cache_base = cache_root or str(Path(executor.cwd) / ".picho" / "caches")
     custom_read_extensions = load_read_extensions(
         read_config.extensions if read_config else [],
         executor.cwd,
@@ -588,7 +588,7 @@ For WAV/MP3 files:
 For video files:
 - Returns the original video by default
 - If `tool_config.read.video_compression.enabled=true` and the file exceeds the configured size limit, picho will try to compress it with ffmpeg while keeping audio
-- Compressed videos are cached under `.picho/cache/files`
+- Converted documents, audio transcripts, and compressed videos are cached under the configured cache root's `files` directory
 - If `tool_config.read.extensions` is configured, matching files can be handled by user-defined read extensions
 
 Output format:

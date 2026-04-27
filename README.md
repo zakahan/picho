@@ -80,11 +80,6 @@ A minimal config example:
 
 ```json
 {
-  "path": {
-    "base": ".",
-    "executor": ".",
-    "skills": [".picho/skills"]
-  },
   "agent": {
     "model": {
       "model_provider": "ark-responses",
@@ -104,6 +99,12 @@ A minimal config example:
   }
 }
 ```
+
+If `path` is omitted, picho stores its own state under `<current directory>/.picho`
+and runs builtin tools in the current directory. Set `path.base` to move logs,
+sessions, telemetry, caches, and default skills together; set `path.executor`
+only when the tool workspace should be different from the directory where
+`picho chat` starts.
 
 Start it with:
 
@@ -132,11 +133,6 @@ from picho.runner import Runner
 
 
 config = {
-    "path": {
-        "base": ".",
-        "executor": ".",
-        "skills": [".picho/skills"]
-    },
     "agent": {
         "model": {
             "model_provider": "ark-responses",

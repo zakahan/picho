@@ -30,7 +30,7 @@ If `audio_asr` is omitted, `mock` is used automatically.
 - Network access: none
 - Credentials: none
 - Output format: markdown transcript
-- Cache: stored under `.picho/cache/files`, keyed by source file mtime and ASR-related config
+- Cache: stored under the configured cache root's `files` directory, keyed by source file mtime and ASR-related config
 
 Example output:
 

@@ -121,7 +121,7 @@ def get_video_cache_dir(file_path: str, workspace: str, limit_bytes: int) -> Pat
     cache_key = hashlib.md5(
         f"video:{file_path}:{p.stat().st_mtime}:{limit_bytes}:{CACHE_VERSION}".encode()
     ).hexdigest()
-    return Path(workspace) / ".picho" / "cache" / "files" / cache_key
+    return Path(workspace) / "files" / cache_key
 
 
 def _read_cached_result(

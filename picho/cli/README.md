@@ -163,13 +163,13 @@ Configuration is stored in `.picho/config.json`:
         },
         "steering_mode": "one-at-a-time",
         "follow_up_mode": "one-at-a-time"
-    },
-    "session_manager": {
-        "cwd": "/path/to/workspace",
-        "persist": true
     }
 }
 ```
+
+When `path` is omitted, picho stores logs, sessions, telemetry, caches, and
+default skills under the current directory's `.picho` folder. Builtin tools run
+in the current directory unless `path.executor` is set.
 
 ### CLIConfig
 

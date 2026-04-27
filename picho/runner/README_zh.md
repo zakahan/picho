@@ -32,7 +32,7 @@ runner = Runner(
     config_type="dict",
     config={
         "agent": {"model": "gpt-4o"},
-        "session_manager": {"cwd": "/workspace"},
+        "path": {"executor": "/workspace"},
     },
 )
 ```
@@ -134,17 +134,16 @@ unsubscribe()
 
 ```json
 {
+    "path": {
+        "base": "/path/to/project/.picho",
+        "executor": "/path/to/workspace"
+    },
     "agent": {
         "model": "gpt-4o",
         "instructions": "You are a helpful assistant.",
         "builtin": {
             "skill": ["code-review", "debug"]
-        },
-        "skill_paths": ["/path/to/skills"]
-    },
-    "session_manager": {
-        "cwd": "/path/to/workspace",
-        "persist_dir": "/path/to/sessions"
+        }
     }
 }
 ```

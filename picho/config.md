@@ -5,11 +5,13 @@
 ```json
 {
   "path": {
-    "base": "/path/to/workspace",
+    "base": "~/.picho",
     "logs": "/path/to/logs",
     "sessions": "/path/to/sessions",
-    "executor": "/path/to/executor",
-    "skills": [".picho/skills"]
+    "telemetry": "/path/to/telemetry",
+    "cache": "/path/to/caches",
+    "executor": "/path/to/workspace",
+    "skills": ["skills"]
   },
   "agent": {
     "model": {
@@ -63,15 +65,43 @@
 
 ### path
 
-工作目录配置。
+路径配置分成两层：`base` 是 picho 状态根目录，`executor` 是 builtin tools 的工作区。
+如果完全不配置 `path`，`base` 默认是当前目录下的 `.picho`，而 `executor` 默认是当前目录本身。
+没有显式配置的状态目录会从 `base` 下分发；显式配置的目录按原样使用，不会再自动追加 `.picho` 或固定子目录。
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `base` | string | 当前目录 | 工作区根目录 |
-| `logs` | string | `base` | 日志文件存放目录 |
-| `sessions` | string | `base` | 会话文件存放目录 |
-| `executor` | string | `base` | bash 工具执行命令时的 cwd |
-| `skills` | string[] | `[".picho/skills"]` | skill 文件搜索路径列表 |
+| `base` | string | `<cwd>/.picho` | picho 状态根目录 |
+| `logs` | string | `base/logs` | 日志文件存放目录；显式配置时即最终目录 |
+| `sessions` | string | `base/sessions` | 会话文件存放目录；显式配置时即最终目录 |
+| `telemetry` | string | `base/telemetry` | telemetry 数据存放目录；显式配置时即最终目录 |
+| `cache` | string | `base/caches` | read 转换、压缩、转写等缓存根目录；显式配置时即最终目录 |
+| `executor` | string | 当前目录 | builtin tools 的 workspace：`bash` 的 cwd，也是 `read/write/edit` 的文件访问边界 |
+| `skills` | string[] | `["skills"]` | skill 文件搜索路径列表；相对路径基于 `base` 解析 |
+
+例如只配置：
+
+```json
+{
+  "path": {
+    "base": "~/.picho"
+  }
+}
+```
+
+会得到 `~/.picho/logs`、`~/.picho/sessions`、`~/.picho/telemetry`、`~/.picho/caches`，但 builtin tools 仍在启动 `picho chat` 的当前目录执行。
+
+如果配置：
+
+```json
+{
+  "path": {
+    "logs": "~/.picho/logx"
+  }
+}
+```
+
+日志目录就是 `~/.picho/logx`，不会变成 `~/.picho/logx/logs` 或 `~/.picho/logx/.picho/logs`。
 
 ---
 
@@ -151,7 +181,7 @@ Agent 相关配置。
 - `mock` provider 不访问外部服务，适合开发和测试；输出会明确标记为 mock transcript。
 - `volcengine` provider 会先把本地音频上传到 TOS，再把公开 URL 提交给豆包录音文件识别。
 - Volcengine 默认读取这些环境变量：`VOLCENGINE_ACCESS_KEY`、`VOLCENGINE_SECRET_KEY`、`VOLCENGINE_SPEECH_API_KEY`、`DEFAULT_TOS_BUCKET`。
-- WAV/MP3 转写结果按文件 mtime 和 ASR 关键配置缓存到 `.picho/cache/files`。
+- WAV/MP3 转写结果按文件 mtime 和 ASR 关键配置缓存到 `path.cache/files`；未配置 `path.cache` 时默认是 `path.base/caches/files`。
 - 每个 provider 的详细配置和使用方式见 `picho/builtin/tool/extension/read/parser/audio/*.md`。
 
 Volcengine ASR 配置示例：

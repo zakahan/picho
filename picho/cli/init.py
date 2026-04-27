@@ -2,6 +2,7 @@
 picho init command - Initialize .picho directory with config files
 """
 
+import copy
 import json
 import os
 from pathlib import Path
@@ -52,9 +53,7 @@ PROVIDER_PRESETS = {
 
 DEFAULT_CONFIG = {
     "path": {
-        "base": "",
-        "cache": ".",
-        "skills": [".picho/skills"],
+        "skills": ["skills"],
     },
     "agent": {
         "instructions": "You are a helpful AI assistant named picho.",
@@ -227,7 +226,6 @@ def init(
         provider=provider,
         model_name=model_name,
         base_url=base_url,
-        cwd=str(target_dir),
     )
 
     click.echo(f"\n✓ Created .picho directory at {picho_dir}")
@@ -266,12 +264,11 @@ def _create_config_files(
     provider: str,
     model_name: str,
     base_url: str,
-    cwd: str,
 ):
     picho_dir.mkdir(parents=True, exist_ok=True)
 
-    config = DEFAULT_CONFIG.copy()
-    config["path"]["base"] = cwd
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    config["path"]["base"] = str(picho_dir)
     config["agent"]["model"] = {
         "model_provider": provider,
         "model_name": model_name,
@@ -303,7 +300,7 @@ def _init_from_global_config(picho_dir: Path, target_dir: Path):
 
     if "path" not in config:
         config["path"] = {}
-    config["path"]["base"] = str(target_dir)
+    config["path"]["executor"] = str(target_dir)
 
     config_file = picho_dir / "config.json"
     with open(config_file, "w", encoding="utf-8") as f:

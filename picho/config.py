@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Literal
 
 
+def _default_base() -> str:
+    return str(Path(os.getcwd()) / ".picho")
+
+
 @dataclass
 class ModelConfig:
     model_provider: str | None = None
@@ -270,55 +274,53 @@ class PathConfig:
     telemetry: str | None = None
     executor: str | None = None
     cache: str | None = None
-    skills: list[str] = field(default_factory=lambda: [".picho/skills"])
+    skills: list[str] = field(default_factory=lambda: ["skills"])
 
     @classmethod
     def from_dict(
         cls, data: dict | str | None, legacy_cwd: str | None = None
     ) -> "PathConfig":
         if data is None:
-            base = legacy_cwd or os.getcwd()
-            return cls(base=base)
+            if legacy_cwd:
+                return cls(base=str(Path(legacy_cwd) / ".picho"), executor=legacy_cwd)
+            return cls(base=_default_base())
 
         if isinstance(data, str):
             return cls(base=data)
 
-        base = data.get("base") or legacy_cwd or os.getcwd()
+        base = data.get("base")
+        if not base and legacy_cwd:
+            base = str(Path(legacy_cwd) / ".picho")
+        base = base or _default_base()
         return cls(
             base=base,
             logs=data.get("logs"),
             sessions=data.get("sessions"),
             telemetry=data.get("telemetry"),
-            executor=data.get("executor"),
+            executor=data.get("executor") or legacy_cwd,
             cache=data.get("cache"),
-            skills=data.get("skills", [".picho/skills"]),
+            skills=data.get("skills", ["skills"]),
         )
 
     @property
     def logs_path(self) -> str:
-        return self.logs or self.base
+        return self.logs or str(Path(self.base) / "logs")
 
     @property
     def sessions_path(self) -> str:
-        return self.sessions or self.base
+        return self.sessions or str(Path(self.base) / "sessions")
 
     @property
     def telemetry_path(self) -> str:
-        return self.telemetry or self.base
+        return self.telemetry or str(Path(self.base) / "telemetry")
 
     @property
     def executor_path(self) -> str:
-        return self.executor or self.base
+        return self.executor or os.getcwd()
 
     @property
     def cache_path(self) -> str:
-        if not self.cache:
-            return self.base
-
-        expanded = os.path.expanduser(self.cache)
-        if os.path.isabs(expanded):
-            return expanded
-        return str(Path(self.base) / expanded)
+        return self.cache or str(Path(self.base) / "caches")
 
     def get_skill_paths(self) -> list[str]:
         result = []
@@ -331,13 +333,13 @@ class PathConfig:
         return result
 
     def get_log_dir(self) -> str:
-        return str(Path(self.logs_path) / ".picho" / "logs")
+        return self.logs_path
 
     def get_session_dir(self) -> str:
-        return str(Path(self.sessions_path) / ".picho" / "sessions")
+        return self.sessions_path
 
     def get_telemetry_dir(self) -> str:
-        return str(Path(self.telemetry_path) / ".picho" / "telemetry")
+        return self.telemetry_path
 
 
 @dataclass

@@ -45,8 +45,8 @@ builtin/
 - 自动截断大文件（默认 2000 行或 50KB）
 - 支持图片文件（jpg, png, gif, webp）
 - 支持视频文件（mp4, mov, avi, mkv, webm）
-- PDF/DOCX 会转换为 markdown，并缓存到 `.picho/cache/files`
-- WAV/MP3 会转写为 markdown，并缓存到 `.picho/cache/files`
+- PDF/DOCX 会转换为 markdown，并缓存到 `path.cache/files`
+- WAV/MP3 会转写为 markdown，并缓存到 `path.cache/files`
 - 默认启用的视频压缩：当视频超过阈值时，自动使用 `ffmpeg` 保留音频并压缩后再读取；可通过 `tool_config.read.video_compression.enabled=false` 关闭
 - 可通过 `tool_config.read.extensions` 注册用户自定义读取扩展
 - 支持分页读取
@@ -92,7 +92,7 @@ builtin/
 ```json
 {
   "path": {
-    "cache": "."
+    "cache": "~/.picho/caches"
   },
   "agent": {
     "builtin": {
@@ -114,7 +114,7 @@ builtin/
 - 只有视频体积超过 `trigger_size_mb` 时才会触发压缩
 - 需要用户本机已安装 `ffmpeg` 和 `ffprobe`
 - 压缩结果会缓存，源文件未变化时可复用缓存
-- `path.cache` 可选；默认使用项目 `path.base`，相对路径相对于 `path.base` 解析，绝对路径则直接使用
+- `path.cache` 可选；默认使用 `path.base/caches`。如果显式配置，`path.cache` 就是最终缓存根目录，read 相关产物会放在 `path.cache/files` 下。
 
 自定义 read 扩展示例：
 

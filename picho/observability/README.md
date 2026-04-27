@@ -58,7 +58,7 @@ Each span may include:
 By default telemetry is written to:
 
 ```text
-<path.telemetry or path.base>/.picho/telemetry/spans.db
+<path.telemetry or path.base/telemetry>/spans.db
 ```
 
 This is configured through `PathConfig.telemetry`.
@@ -70,8 +70,8 @@ Telemetry can be enabled or disabled explicitly:
 ```json
 {
   "path": {
-    "base": "/path/to/project",
-    "telemetry": "/path/to/project"
+    "base": "/path/to/project/.picho",
+    "telemetry": "/path/to/project/.picho/telemetry"
   },
   "observability": {
     "enabled": true

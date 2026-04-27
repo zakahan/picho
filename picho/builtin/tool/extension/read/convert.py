@@ -3,15 +3,14 @@ Document conversion module for reading PDF and DOCX files.
 Converts documents to markdown format with caching support.
 
 Cache structure:
-    .picho/
-    └── cache/
-        └── files/
-            └── {cache_key}/
-                ├── document.md
-                ├── metadata.json
-                ├── image_0.png
-                ├── image_1.png
-                └── ...
+    <cache_root>/
+    └── files/
+        └── {cache_key}/
+            ├── document.md
+            ├── metadata.json
+            ├── image_0.png
+            ├── image_1.png
+            └── ...
 """
 
 import asyncio
@@ -49,7 +48,7 @@ def get_cache_dir(
     mtime = p.stat().st_mtime
     variant_key = f":{variant}" if variant else ""
     cache_key = hashlib.md5(f"{file_path}:{mtime}{variant_key}".encode()).hexdigest()
-    cache_dir = Path(workspace) / ".picho" / "cache" / "files" / cache_key
+    cache_dir = Path(workspace) / "files" / cache_key
     return cache_dir
 
 

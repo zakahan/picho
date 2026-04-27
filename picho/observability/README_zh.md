@@ -58,7 +58,7 @@ LocalSqliteSpanExporter
 默认情况下 telemetry 会写到：
 
 ```text
-<path.telemetry or path.base>/.picho/telemetry/spans.db
+<path.telemetry or path.base/telemetry>/spans.db
 ```
 
 这个路径由 `PathConfig.telemetry` 控制。
@@ -70,8 +70,8 @@ LocalSqliteSpanExporter
 ```json
 {
   "path": {
-    "base": "/path/to/project",
-    "telemetry": "/path/to/project"
+    "base": "/path/to/project/.picho",
+    "telemetry": "/path/to/project/.picho/telemetry"
   },
   "observability": {
     "enabled": true

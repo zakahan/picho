@@ -81,11 +81,6 @@ uv add picho["all"]
 
 ```json
 {
-  "path": {
-    "base": ".",
-    "executor": ".",
-    "skills": [".picho/skills"]
-  },
   "agent": {
     "model": {
       "model_provider": "ark-responses",
@@ -105,6 +100,11 @@ uv add picho["all"]
   }
 }
 ```
+
+如果省略 `path`，picho 会把自己的状态文件放在当前目录的 `.picho`
+下，并让 builtin tools 在当前目录执行。设置 `path.base` 可以整体移动
+logs、sessions、telemetry、caches 和默认 skills；只有当工具 workspace
+需要不同于 `picho chat` 启动目录时，才需要设置 `path.executor`。
 
 启动命令：
 
@@ -133,11 +133,6 @@ from picho.runner import Runner
 
 
 config = {
-    "path": {
-        "base": ".",
-        "executor": ".",
-        "skills": [".picho/skills"]
-    },
     "agent": {
         "model": {
             "model_provider": "ark-responses",

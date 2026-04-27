@@ -24,8 +24,8 @@ SessionManager 处理会话持久化：
 from picho.session import SessionManager
 
 manager = SessionManager(
-    cwd="/path/to/workspace",
-    persist_dir="/path/to/sessions",
+    cwd="/path/to/sessions",
+    persist=True,
 )
 
 # 创建新会话
@@ -193,7 +193,7 @@ context_tokens = estimate_context_tokens(context)
 ```python
 from picho.session import SessionManager
 
-manager = SessionManager(cwd="/workspace")
+manager = SessionManager(cwd="/workspace/.picho/sessions")
 session = manager.create()
 
 # 添加消息
@@ -210,7 +210,7 @@ manager.save(session)
 from picho.session import SessionManager, CompactionSettings
 
 settings = CompactionSettings(max_tokens=128000)
-manager = SessionManager(cwd="/workspace", compaction_settings=settings)
+manager = SessionManager(cwd="/workspace/.picho/sessions", compaction_settings=settings)
 
 session = manager.create()
 

@@ -105,6 +105,11 @@ def chat(config_path: str | None, runner_path: str | None, verbose: bool):
             _log.info(f"Using config: {config_path}")
             runner = Runner(config_type="json", config=config_path)
 
+        init_logging(
+            level=log_level,
+            log_to_file=True,
+            stream=sys.stderr if cli_config.log.console_output else None,
+        )
         session_id = runner.create_session()
 
         confirmation_manager = create_confirmation_manager()

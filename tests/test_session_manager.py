@@ -16,6 +16,7 @@ def test_session_manager_persists_and_loads_context(tmp_path: Path):
     session_file = manager.get_session_file()
     assert session_file is not None
     assert Path(session_file).exists()
+    assert Path(session_file).parent == tmp_path
 
     loaded = SessionManager(cwd=str(tmp_path), session_file=session_file, persist=True)
     context = loaded.get_context()

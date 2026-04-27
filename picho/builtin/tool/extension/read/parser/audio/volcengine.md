@@ -130,5 +130,5 @@ The provider returns text and, when available, sentence-level utterances. The sh
 ## Notes
 
 - The uploaded TOS object is public-read because the ASR API consumes a URL.
-- ASR results are cached under `.picho/cache/files`.
+- ASR results are cached under the configured cache root's `files` directory.
 - The cache key includes the source file mtime and key ASR options so switching providers or language does not reuse an incompatible transcript.

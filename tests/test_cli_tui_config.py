@@ -76,7 +76,10 @@ def test_chat_app_uses_prompt_prefix_and_color_toggle():
     assert prompt[0][1] == "Me › "
     assert prompt[0][0] == "bold"
     assert status[1][1] == "bot"
-    assert resolve_theme("mono").response_border != resolve_theme("default").response_border
+    assert (
+        resolve_theme("mono").response_border
+        != resolve_theme("default").response_border
+    )
     assert ansi("plain", resolve_theme("mono").gold, bold=True) == "plain"
 
 
@@ -102,7 +105,9 @@ def test_stream_output_false_renders_only_final_message(monkeypatch):
     runner.listener(
         AgentEvent(
             type="content_delta",
-            assistant_event=type("AssistantEvent", (), {"data": type("Data", (), {"delta": "hel"})()})(),
+            assistant_event=type(
+                "AssistantEvent", (), {"data": type("Data", (), {"delta": "hel"})()}
+            )(),
         )
     )
     assert output == []

@@ -24,8 +24,8 @@ The SessionManager handles session persistence:
 from picho.session import SessionManager
 
 manager = SessionManager(
-    cwd="/path/to/workspace",
-    persist_dir="/path/to/sessions",
+    cwd="/path/to/sessions",
+    persist=True,
 )
 
 # Create new session
@@ -193,7 +193,7 @@ Sessions are saved as JSON files:
 ```python
 from picho.session import SessionManager
 
-manager = SessionManager(cwd="/workspace")
+manager = SessionManager(cwd="/workspace/.picho/sessions")
 session = manager.create()
 
 # Add message
@@ -210,7 +210,7 @@ manager.save(session)
 from picho.session import SessionManager, CompactionSettings
 
 settings = CompactionSettings(max_tokens=128000)
-manager = SessionManager(cwd="/workspace", compaction_settings=settings)
+manager = SessionManager(cwd="/workspace/.picho/sessions", compaction_settings=settings)
 
 session = manager.create()
 

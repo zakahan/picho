@@ -70,7 +70,9 @@ class Runner:
             return str(Path(path).expanduser().resolve(strict=False))
 
         path_config = self._config.path
-        path_config.base = normalize(path_config.base) or os.getcwd()
+        path_config.base = normalize(path_config.base) or str(
+            Path(os.getcwd()) / ".picho"
+        )
         path_config.logs = normalize(path_config.logs)
         path_config.sessions = normalize(path_config.sessions)
         path_config.telemetry = normalize(path_config.telemetry)
@@ -89,12 +91,12 @@ class Runner:
         if not workspace_path.exists():
             raise FileNotFoundError(
                 "Configured workspace does not exist: "
-                f"{workspace_path}. Fix `path.executor` or `path.base` before starting picho."
+                f"{workspace_path}. Fix `path.executor` before starting picho."
             )
         if not workspace_path.is_dir():
             raise NotADirectoryError(
                 "Configured workspace is not a directory: "
-                f"{workspace_path}. Fix `path.executor` or `path.base` before starting picho."
+                f"{workspace_path}. Fix `path.executor` before starting picho."
             )
         return workspace
 

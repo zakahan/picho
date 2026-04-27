@@ -59,7 +59,7 @@ def test_audio_cache_variant_includes_asr_provider(tmp_path: Path):
     )
 
     assert "Provider: mock" in mock_markdown
-    cache_dirs = list((tmp_path / ".picho" / "cache" / "files").iterdir())
+    cache_dirs = list((tmp_path / "files").iterdir())
     assert len(cache_dirs) == 1
 
 

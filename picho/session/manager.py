@@ -62,7 +62,7 @@ class SessionManager:
             self.new_session()
 
     def _get_session_dir(self) -> str:
-        session_dir = Path(self.cwd) / ".picho" / "sessions"
+        session_dir = Path(self.cwd)
         return str(session_dir)
 
     def new_session(self, parent_session: str | None = None) -> str:

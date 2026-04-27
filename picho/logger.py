@@ -120,7 +120,7 @@ def set_log_dir(log_dir: str | Path) -> None:
 
 def get_log_dir() -> Path:
     if _default_log_dir:
-        return _default_log_dir / ".picho" / "logs"
+        return _default_log_dir
     cwd = Path.cwd()
     return cwd / ".picho" / "logs"
 

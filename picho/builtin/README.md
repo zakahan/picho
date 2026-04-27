@@ -45,8 +45,8 @@ Features:
 - Auto-truncation for large files (default 2000 lines or 50KB)
 - Image file support (jpg, png, gif, webp)
 - Video file support (mp4, mov, avi, mkv, webm)
-- PDF/DOCX are converted to markdown and cached under `.picho/cache/files`
-- WAV/MP3 are transcribed to markdown and cached under `.picho/cache/files`
+- PDF/DOCX are converted to markdown and cached under `path.cache/files`
+- WAV/MP3 are transcribed to markdown and cached under `path.cache/files`
 - Video compression is enabled by default: when a video exceeds the configured limit, picho compresses it with `ffmpeg` while keeping audio; set `tool_config.read.video_compression.enabled=false` to disable it
 - Read extensions can handle custom file types
 - Pagination support
@@ -92,7 +92,7 @@ Video compression config example:
 ```json
 {
   "path": {
-    "cache": "."
+    "cache": "~/.picho/caches"
   },
   "agent": {
     "builtin": {
@@ -114,7 +114,7 @@ Notes:
 - Compression only runs when the video is larger than `trigger_size_mb`
 - `ffmpeg` and `ffprobe` must be installed on the user's machine
 - Compressed outputs are cached and reused while the source file is unchanged
-- `path.cache` is optional; by default picho uses `path.base`, relative paths resolve from `path.base`, and absolute paths are used as-is
+- `path.cache` is optional; by default picho uses `path.base/caches`. If configured, `path.cache` is the final cache root and picho stores read artifacts below `path.cache/files`.
 
 Custom read extension example:
 
