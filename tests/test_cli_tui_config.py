@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from types import ModuleType
+
 from picho.agent.types import AgentEvent
+from picho.cli.chat import load_tui_commands_from_module
 from picho.cli.config import CLIConfig
-from picho.cli.tui import ChatApp, ansi, resolve_theme
+from picho.cli.tui import ChatApp, TUICommand, ansi, resolve_theme
 from picho.provider.types import AssistantMessage, TextContent, Usage
 
 
@@ -125,3 +128,45 @@ def test_stream_output_false_renders_only_final_message(monkeypatch):
     joined = "\n".join(output)
     assert "hello world" in joined
     assert "tokens in=10 out=5" not in joined
+
+
+def test_chat_app_registers_custom_tui_command(monkeypatch):
+    runner = _FakeRunner()
+    config = CLIConfig.from_dict({})
+    seen: list[tuple[str, str]] = []
+
+    def hello(ctx, args: str) -> None:
+        seen.append((ctx.session_id, args))
+        ctx.emit_system(f"hello {args}")
+
+    app = ChatApp(
+        runner,
+        "session-1",
+        config,
+        commands=[
+            TUICommand(
+                name="/hello",
+                aliases=("hi",),
+                help="Say hello",
+                handler=hello,
+            )
+        ],
+    )
+    output: list[str] = []
+    monkeypatch.setattr(app, "_emit_system", output.append)
+
+    app._handle_command("/hi Ada Lovelace")
+    app._handle_command("/help")
+
+    assert seen == [("session-1", "Ada Lovelace")]
+    assert output[0] == "hello Ada Lovelace"
+    assert "/hello, /hi" in output[1]
+    assert "Say hello" in output[1]
+
+
+def test_load_tui_commands_from_runner_module():
+    command = TUICommand(name="/x", help="Custom", handler=lambda _ctx, _args: None)
+    module = ModuleType("runner_module")
+    module.tui_commands = [command]
+
+    assert list(load_tui_commands_from_module(module)) == [command]

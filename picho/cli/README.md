@@ -89,6 +89,7 @@ You can create a Python module that dynamically builds the Runner:
 ```python
 # my_runner.py
 import os
+from picho.cli.tui import TUICommand
 from picho.runner import Runner
 
 config = {
@@ -110,12 +111,31 @@ config = {
 }
 
 runner = Runner(config_type="dict", config=config)
+
+
+def show_workspace(ctx, args):
+    workspace = ctx.runner.get_session_workspace(ctx.session_id) or "-"
+    ctx.emit_system(f"Workspace: {workspace}")
+
+
+tui_commands = [
+    TUICommand(
+        name="/workspace",
+        aliases=("/cwd",),
+        help="Show current workspace",
+        handler=show_workspace,
+    )
+]
 ```
 
 Then run:
 ```bash
 picho chat -r my_runner.py
 ```
+
+The `tui_commands` export is optional. Each command receives a
+`TUICommandContext` and the remaining argument text after the command name.
+Handlers may be synchronous functions or async functions.
 
 ### Interactive Commands
 
@@ -130,6 +150,15 @@ Inside the chat TUI:
 | `/sessions [n]` | List recent sessions |
 | `/checkout <id>` | Switch to session |
 | `/agent` | Show agent info |
+
+Custom commands can be provided in two ways:
+
+- Pass `commands=[TUICommand(...)]` when constructing `ChatTUI`.
+- Export `tui_commands = [...]` from a module loaded with `picho chat --runner`.
+
+Command names and aliases may be written with or without the leading `/`; they
+are normalized before registration. If a custom command reuses a built-in name
+or alias, the later registration replaces the earlier one.
 
 ### Keyboard Shortcuts
 
@@ -226,7 +255,7 @@ picho chat
 
 ```python
 from picho.cli import CLIConfig
-from picho.cli.tui import ChatTUI
+from picho.cli.tui import ChatTUI, TUICommand
 from picho.runner import Runner
 
 config = CLIConfig(
@@ -236,7 +265,17 @@ config = CLIConfig(
 runner = Runner(config_type="json", config=".picho/config.json")
 session_id = runner.create_session()
 
-chat_tui = ChatTUI(runner, session_id, config, confirmation_manager)
+def ping(ctx, args):
+    ctx.emit_system("pong")
+
+
+chat_tui = ChatTUI(
+    runner,
+    session_id,
+    config,
+    confirmation_manager,
+    commands=[TUICommand(name="/ping", help="Show pong", handler=ping)],
+)
 await chat_tui.run()
 ```
 

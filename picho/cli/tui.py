@@ -23,12 +23,13 @@ from __future__ import annotations
 
 import asyncio
 import io
+import inspect
 import shutil
 import threading
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from prompt_toolkit import print_formatted_text
 from prompt_toolkit.application import Application
@@ -59,6 +60,31 @@ from .config import CLIConfig, DisplayThemeName, format_for_display
 from .confirmation import ConfirmationManager, ConfirmationRequest
 
 _log = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class TUICommandContext:
+    """Runtime helpers exposed to custom TUI slash commands."""
+
+    runner: Runner
+    session_id: str
+    emit_system: Callable[[str], None]
+    emit_error: Callable[[str], None]
+    refresh: Callable[[], None]
+    switch_session: Callable[[str], None]
+
+
+TUICommandHandler = Callable[[TUICommandContext, str], Any]
+
+
+@dataclass(frozen=True)
+class TUICommand:
+    """Slash command registered in the chat TUI."""
+
+    name: str
+    help: str
+    handler: TUICommandHandler
+    aliases: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +331,7 @@ class ChatApp:
         session_id: str,
         config: CLIConfig,
         confirmation_manager: ConfirmationManager | None = None,
+        commands: Iterable[TUICommand] | None = None,
     ):
         global THEME, COLOR_ENABLED
 
@@ -314,6 +341,7 @@ class ChatApp:
         self.confirmation_manager = confirmation_manager
         THEME = resolve_theme(config.display.theme)
         COLOR_ENABLED = config.display.color_enabled
+        self._commands: dict[str, TUICommand] = {}
 
         self.running = True
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -404,6 +432,92 @@ class ChatApp:
             full_screen=False,
             mouse_support=False,
             editing_mode=EditingMode.EMACS,
+        )
+        self._register_builtin_commands()
+        self.register_commands(commands or [])
+
+    # ---- command registry -------------------------------------------------
+
+    @staticmethod
+    def _normalize_command_name(name: str) -> str:
+        normalized = name.strip().lower()
+        if not normalized.startswith("/"):
+            normalized = f"/{normalized}"
+        return normalized
+
+    def register_command(self, command: TUICommand) -> None:
+        name = self._normalize_command_name(command.name)
+        aliases = tuple(
+            self._normalize_command_name(alias) for alias in command.aliases
+        )
+        normalized = TUICommand(
+            name=name,
+            help=command.help,
+            handler=command.handler,
+            aliases=aliases,
+        )
+        for key in (name, *aliases):
+            self._commands[key] = normalized
+
+    def register_commands(self, commands: Iterable[TUICommand]) -> None:
+        for command in commands:
+            self.register_command(command)
+
+    def _command_context(self) -> TUICommandContext:
+        return TUICommandContext(
+            runner=self.runner,
+            session_id=self.session_id,
+            emit_system=self._emit_system,
+            emit_error=self._emit_error,
+            refresh=self._request_refresh,
+            switch_session=self._switch_session,
+        )
+
+    def _switch_session(self, session_id: str) -> None:
+        self.session_id = session_id
+        self._subscribe_current()
+        self._request_refresh()
+
+    def _register_builtin_commands(self) -> None:
+        self.register_commands(
+            [
+                TUICommand(
+                    name="/quit",
+                    aliases=("/q",),
+                    help="Exit",
+                    handler=self._command_quit,
+                ),
+                TUICommand(
+                    name="/abort",
+                    help="Abort current streaming",
+                    handler=self._command_abort,
+                ),
+                TUICommand(
+                    name="/new",
+                    help="Create new session",
+                    handler=self._command_new,
+                ),
+                TUICommand(
+                    name="/sessions",
+                    help="List sessions (last n)",
+                    handler=self._command_sessions,
+                ),
+                TUICommand(
+                    name="/checkout",
+                    help="Switch to session",
+                    handler=self._command_checkout,
+                ),
+                TUICommand(
+                    name="/agent",
+                    help="Show agent info",
+                    handler=self._command_agent,
+                ),
+                TUICommand(
+                    name="/help",
+                    help="Show this help",
+                    handler=self._command_help,
+                ),
+            ]
         )
 
     # ---- prompt_toolkit callbacks --------------------------------------
@@ -875,135 +989,150 @@ class ChatApp:
             asyncio.run_coroutine_threadsafe(self._handle_message(text), loop)
 
     def _handle_command(self, cmd: str) -> None:
-        parts = cmd.split(maxsplit=2)
+        parts = cmd.split(maxsplit=1)
         command = parts[0].lower()
-        args = parts[1] if len(parts) > 1 else None
-
-        if command in ("/quit", "/q"):
-            self.running = False
-            self._app.exit()
+        args = parts[1] if len(parts) > 1 else ""
+        registered = self._commands.get(command)
+        if not registered:
+            self._emit_system(f"Unknown command: {command}")
             return
 
-        if command == "/abort":
-            if self.runner.is_streaming(self.session_id):
-                self.runner.abort(self.session_id)
-                self._emit_system("Aborted current streaming")
-            else:
-                self._emit_system("No active streaming to abort")
-            return
+        try:
+            result = registered.handler(self._command_context(), args)
+            if inspect.isawaitable(result):
+                loop = self._loop or asyncio.get_event_loop()
+                future = asyncio.run_coroutine_threadsafe(result, loop)
+                future.add_done_callback(self._handle_command_done)
+        except Exception as err:
+            log_exception(_log, "Command failed", err, command=command)
+            self._emit_error(f"Command failed: {err}\n{traceback.format_exc()}")
 
-        if command == "/new":
-            self.session_id = self.runner.create_session()
-            self._subscribe_current()
-            self._emit_system(f"Created session: {self.session_id}")
+    def _handle_command_done(self, future: Any) -> None:
+        try:
+            future.result()
+        except Exception as err:
+            log_exception(_log, "Command failed", err)
+            self._emit_error(f"Command failed: {err}")
+        finally:
             self._request_refresh()
-            return
 
-        if command == "/sessions":
-            limit = None
-            if args:
-                try:
-                    limit = int(args)
-                except ValueError:
-                    limit = None
-            sessions = self.runner.list_persisted_sessions(limit)
-            if not sessions:
-                self._emit_system("No sessions found")
-                return
-            lines = [f"Sessions (showing {len(sessions)}):"]
-            for s in sessions:
-                mark = " *" if s["session_id"] == self.session_id else ""
-                first = (s.get("first_message") or "")[:50]
-                if len(s.get("first_message") or "") > 50:
-                    first += "..."
-                lines.append(f"  {s['session_id']}{mark}")
-                lines.append(f"    Messages: {s['message_count']}, First: {first}")
-            self._emit_system("\n".join(lines))
-            return
+    def _command_quit(self, _ctx: TUICommandContext, _args: str) -> None:
+        self.running = False
+        self._app.exit()
 
-        if command == "/checkout":
-            if not args:
-                self._emit_system("Usage: /checkout <session_id>")
-                return
-            target_id = args.strip()
-            if self.runner.has_session(target_id):
-                self.session_id = target_id
-                self._subscribe_current()
-                self._emit_system(f"Switched to session: {target_id}")
-                self._request_refresh()
-                return
-            sessions = self.runner.list_persisted_sessions()
-            session_file = next(
-                (s["session_file"] for s in sessions if s["session_id"] == target_id),
-                None,
-            )
-            if not session_file:
-                self._emit_system(f"Session not found: {target_id}")
-                return
+    def _command_abort(self, _ctx: TUICommandContext, _args: str) -> None:
+        if self.runner.is_streaming(self.session_id):
+            self.runner.abort(self.session_id)
+            self._emit_system("Aborted current streaming")
+        else:
+            self._emit_system("No active streaming to abort")
+
+    def _command_new(self, ctx: TUICommandContext, _args: str) -> None:
+        session_id = self.runner.create_session()
+        ctx.switch_session(session_id)
+        self._emit_system(f"Created session: {self.session_id}")
+
+    def _command_sessions(self, _ctx: TUICommandContext, args: str) -> None:
+        limit = None
+        if args:
             try:
-                self.session_id = self.runner.load_session(session_file)
-                self._subscribe_current()
-                state = self.runner.get_session(self.session_id)
-                if state:
-                    for entry in state.session.get_entries():
-                        msg = getattr(entry, "message", None)
-                        if not msg:
-                            continue
-                        role = msg.get("role", "unknown")
-                        if role == "user":
-                            self._emit_user_block(
+                limit = int(args)
+            except ValueError:
+                limit = None
+        sessions = self.runner.list_persisted_sessions(limit)
+        if not sessions:
+            self._emit_system("No sessions found")
+            return
+        lines = [f"Sessions (showing {len(sessions)}):"]
+        for s in sessions:
+            mark = " *" if s["session_id"] == self.session_id else ""
+            first = (s.get("first_message") or "")[:50]
+            if len(s.get("first_message") or "") > 50:
+                first += "..."
+            lines.append(f"  {s['session_id']}{mark}")
+            lines.append(f"    Messages: {s['message_count']}, First: {first}")
+        self._emit_system("\n".join(lines))
+
+    def _command_checkout(self, ctx: TUICommandContext, args: str) -> None:
+        if not args:
+            self._emit_system("Usage: /checkout <session_id>")
+            return
+        target_id = args.strip()
+        if self.runner.has_session(target_id):
+            ctx.switch_session(target_id)
+            self._emit_system(f"Switched to session: {target_id}")
+            return
+        sessions = self.runner.list_persisted_sessions()
+        session_file = next(
+            (s["session_file"] for s in sessions if s["session_id"] == target_id),
+            None,
+        )
+        if not session_file:
+            self._emit_system(f"Session not found: {target_id}")
+            return
+        try:
+            ctx.switch_session(self.runner.load_session(session_file))
+            state = self.runner.get_session(self.session_id)
+            if state:
+                for entry in state.session.get_entries():
+                    msg = getattr(entry, "message", None)
+                    if not msg:
+                        continue
+                    role = msg.get("role", "unknown")
+                    if role == "user":
+                        self._emit_user_block(
+                            self._extract_text_content(msg.get("content", ""))
+                        )
+                    elif role == "assistant":
+                        err = msg.get("error_message")
+                        if err:
+                            self._emit_error(err)
+                        else:
+                            self._emit_assistant_full(
                                 self._extract_text_content(msg.get("content", ""))
                             )
-                        elif role == "assistant":
-                            err = msg.get("error_message")
-                            if err:
-                                self._emit_error(err)
-                            else:
-                                self._emit_assistant_full(
-                                    self._extract_text_content(msg.get("content", ""))
-                                )
-                self._emit_system(f"Loaded session: {target_id}")
-                self._request_refresh()
-            except Exception as e:
-                self._emit_system(f"Failed to load session: {e}")
-            return
+            self._emit_system(f"Loaded session: {target_id}")
+            self._request_refresh()
+        except Exception as e:
+            self._emit_system(f"Failed to load session: {e}")
 
-        if command == "/agent":
-            state: SessionState | None = self.runner.get_session(self.session_id)
-            if state:
-                agent = state.agent
-                model = agent.state.model
-                lines = [
-                    "Current agent info:",
-                    f"  Model: {getattr(model, 'model_name', 'N/A')}",
-                    f"  Streaming: {agent.state.is_streaming}",
-                    f"  Has Queued: {agent.has_queued_messages()}",
-                ]
-                self._emit_system("\n".join(lines))
-            return
+    def _command_agent(self, _ctx: TUICommandContext, _args: str) -> None:
+        state: SessionState | None = self.runner.get_session(self.session_id)
+        if state:
+            agent = state.agent
+            model = agent.state.model
+            lines = [
+                "Current agent info:",
+                f"  Model: {getattr(model, 'model_name', 'N/A')}",
+                f"  Streaming: {agent.state.is_streaming}",
+                f"  Has Queued: {agent.has_queued_messages()}",
+            ]
+            self._emit_system("\n".join(lines))
 
-        if command == "/help":
-            self._emit_system(
-                "Commands:\n"
-                "  /quit, /q        - Exit\n"
-                "  /abort           - Abort current streaming\n"
-                "  /new             - Create new session\n"
-                "  /sessions [n]    - List sessions (last n)\n"
-                "  /checkout <id>   - Switch to session\n"
-                "  /agent           - Show agent info\n"
-                "  /help            - Show this help\n\n"
-                "Input keys:\n"
-                "  Enter            - Send\n"
-                "  Alt+Enter / Ctrl+J - Insert newline (multi-line input)\n"
-                "  Ctrl+C           - Abort streaming / reject confirmation\n"
-                "  Ctrl+D           - Quit\n\n"
-                "During streaming:\n"
-                "  Normal input = steer (interrupt)\n"
-                "  > prefix = follow-up (after current turn)"
-            )
-            return
-
-        self._emit_system(f"Unknown command: {command}")
+    def _command_help(self, _ctx: TUICommandContext, _args: str) -> None:
+        seen: set[str] = set()
+        lines = ["Commands:"]
+        for command in self._commands.values():
+            if command.name in seen:
+                continue
+            seen.add(command.name)
+            names = ", ".join((command.name, *command.aliases))
+            lines.append(f"  {names:<16} - {command.help}")
+        lines.extend(
+            [
+                "",
+                "Input keys:",
+                "  Enter            - Send",
+                "  Alt+Enter / Ctrl+J - Insert newline (multi-line input)",
+                "  Ctrl+C           - Abort streaming / reject confirmation",
+                "  Ctrl+D           - Quit",
+                "",
+                "During streaming:",
+                "  Normal input = steer (interrupt)",
+                "  > prefix = follow-up (after current turn)",
+            ]
+        )
+        self._emit_system("\n".join(lines))
 
     async def _handle_message(self, message: str) -> None:
         is_follow_up = message.startswith(">")
@@ -1245,8 +1374,9 @@ class ChatTUI:
         session_id: str,
         config: CLIConfig,
         confirmation_manager: ConfirmationManager | None = None,
+        commands: Iterable[TUICommand] | None = None,
     ):
-        self._app = ChatApp(runner, session_id, config, confirmation_manager)
+        self._app = ChatApp(runner, session_id, config, confirmation_manager, commands)
 
     async def run(self) -> None:
         await self._app.run()

@@ -89,6 +89,7 @@ picho chat -r my_runner.py
 ```python
 # my_runner.py
 import os
+from picho.cli.tui import TUICommand
 from picho.runner import Runner
 
 config = {
@@ -110,12 +111,29 @@ config = {
 }
 
 runner = Runner(config_type="dict", config=config)
+
+
+def show_workspace(ctx, args):
+    workspace = ctx.runner.get_session_workspace(ctx.session_id) or "-"
+    ctx.emit_system(f"Workspace: {workspace}")
+
+
+tui_commands = [
+    TUICommand(
+        name="/workspace",
+        aliases=("/cwd",),
+        help="显示当前 workspace",
+        handler=show_workspace,
+    )
+]
 ```
 
 然后运行：
 ```bash
 picho chat -r my_runner.py
 ```
+
+`tui_commands` 是可选导出。每个命令都会收到 `TUICommandContext` 和命令名之后剩余的参数文本。handler 可以是同步函数，也可以是 async 函数。
 
 ### 交互命令
 
@@ -130,6 +148,13 @@ picho chat -r my_runner.py
 | `/sessions [n]` | 列出最近的会话 |
 | `/checkout <id>` | 切换到指定会话 |
 | `/agent` | 显示 Agent 信息 |
+
+自定义命令有两种接入方式：
+
+- 构造 `ChatTUI` 时传入 `commands=[TUICommand(...)]`。
+- 在 `picho chat --runner` 加载的模块中导出 `tui_commands = [...]`。
+
+命令名和 alias 可以带 `/`，也可以省略 `/`；注册时会自动标准化。如果自定义命令复用了内置命令名或 alias，后注册的命令会覆盖先注册的命令。
 
 ### 键盘快捷键
 
@@ -225,7 +250,7 @@ picho chat
 
 ```python
 from picho.cli import CLIConfig
-from picho.cli.tui import ChatTUI
+from picho.cli.tui import ChatTUI, TUICommand
 from picho.runner import Runner
 
 config = CLIConfig(
@@ -235,7 +260,17 @@ config = CLIConfig(
 runner = Runner(config_type="json", config=".picho/config.json")
 session_id = runner.create_session()
 
-chat_tui = ChatTUI(runner, session_id, config, confirmation_manager)
+def ping(ctx, args):
+    ctx.emit_system("pong")
+
+
+chat_tui = ChatTUI(
+    runner,
+    session_id,
+    config,
+    confirmation_manager,
+    commands=[TUICommand(name="/ping", help="显示 pong", handler=ping)],
+)
 await chat_tui.run()
 ```
 

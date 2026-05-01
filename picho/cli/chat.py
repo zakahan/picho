@@ -4,13 +4,15 @@ import sys
 import logging
 import traceback
 from pathlib import Path
+from types import ModuleType
+from typing import Iterable
 
 import click
 
 from ..runner import Runner
 from ..logger import format_exception, init_logging, get_logger, log_exception
 from .config import load_cli_config
-from .tui import ChatTUI
+from .tui import ChatTUI, TUICommand
 from .confirmation import create_confirmation_manager
 from .security_callback import create_bash_security_callback
 
@@ -29,7 +31,7 @@ def find_config() -> str | None:
     return None
 
 
-def load_runner_from_module(module_path: str) -> Runner:
+def load_runner_module(module_path: str) -> ModuleType:
     path = Path(module_path)
     if not path.exists():
         raise ValueError(f"Runner module not found: {module_path}")
@@ -41,7 +43,15 @@ def load_runner_from_module(module_path: str) -> Runner:
     module = importlib.util.module_from_spec(spec)
     sys.modules["runner_module"] = module
     spec.loader.exec_module(module)
+    return module
 
+
+def load_runner_from_module(module_path: str) -> Runner:
+    module = load_runner_module(module_path)
+    return get_runner_from_module(module, module_path)
+
+
+def get_runner_from_module(module: ModuleType, module_path: str) -> Runner:
     if not hasattr(module, "runner"):
         raise ValueError(f"Module {module_path} must export a 'runner' variable")
 
@@ -50,6 +60,13 @@ def load_runner_from_module(module_path: str) -> Runner:
         raise ValueError(f"'runner' in {module_path} must be a Runner instance")
 
     return runner
+
+
+def load_tui_commands_from_module(module: ModuleType) -> Iterable[TUICommand]:
+    commands = getattr(module, "tui_commands", [])
+    if commands is None:
+        return []
+    return commands
 
 
 @click.command(name="chat")
@@ -86,11 +103,14 @@ def chat(config_path: str | None, runner_path: str | None, verbose: bool):
 
     _log.info("Starting picho coding session")
     runner: Runner | None = None
+    tui_commands: Iterable[TUICommand] = []
 
     try:
         if runner_path:
             _log.info(f"Loading runner from module: {runner_path}")
-            runner = load_runner_from_module(runner_path)
+            module = load_runner_module(runner_path)
+            runner = get_runner_from_module(module, runner_path)
+            tui_commands = load_tui_commands_from_module(module)
         else:
             if not config_path:
                 config_path = find_config()
@@ -120,7 +140,13 @@ def chat(config_path: str | None, runner_path: str | None, verbose: bool):
             state.agent.register_callback("before_tool_callback", security_callback)
 
         cli_config = load_cli_config()
-        chat_tui = ChatTUI(runner, session_id, cli_config, confirmation_manager)
+        chat_tui = ChatTUI(
+            runner,
+            session_id,
+            cli_config,
+            confirmation_manager,
+            commands=tui_commands,
+        )
         asyncio.run(chat_tui.run())
     except SystemExit:
         raise
