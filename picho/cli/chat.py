@@ -90,14 +90,26 @@ def load_tui_commands_from_module(module: ModuleType) -> Iterable[TUICommand]:
     is_flag=True,
     help="Enable verbose logging",
 )
-def chat(config_path: str | None, runner_path: str | None, verbose: bool):
+@click.option(
+    "-t",
+    "--tui-config",
+    "tui_config_path",
+    type=click.Path(exists=True),
+    help="Path to TUI config JSON file",
+)
+def chat(
+    config_path: str | None,
+    runner_path: str | None,
+    verbose: bool,
+    tui_config_path: str | None,
+):
     """Start an interactive coding session with picho."""
-    cli_config = load_cli_config()
+    cli_config = load_cli_config(explicit_path=tui_config_path)
 
     log_level = logging.DEBUG if verbose else logging.INFO
     init_logging(
         level=log_level,
-        log_to_file=True,
+        log_to_file=False,
         stream=sys.stderr if cli_config.log.console_output else None,
     )
 
@@ -139,7 +151,7 @@ def chat(config_path: str | None, runner_path: str | None, verbose: bool):
         if state:
             state.agent.register_callback("before_tool_callback", security_callback)
 
-        cli_config = load_cli_config()
+        cli_config = load_cli_config(explicit_path=tui_config_path)
         chat_tui = ChatTUI(
             runner,
             session_id,

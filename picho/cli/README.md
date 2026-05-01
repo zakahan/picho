@@ -69,6 +69,7 @@ Options:
 - `-c, --config` - Path to config JSON file
 - `-r, --runner` - Path to Python module that exports a `runner` variable
 - `-v, --verbose` - Enable verbose logging
+- `-t, --tui-config` - Path to TUI config JSON file
 
 Examples:
 ```bash
@@ -80,6 +81,9 @@ picho chat -c /path/to/config.json
 
 # Use dynamic runner from Python module
 picho chat -r my_runner.py
+
+# Specify TUI config file
+picho chat --tui-config /path/to/my-tui.json
 ```
 
 #### Dynamic Runner Module
@@ -211,10 +215,11 @@ print(config.log.console_output)
 
 `load_cli_config()` searches TUI settings in this order:
 
-- `.picho/tui.json` in the current directory
-- `~/.picho/tui.json` in the user home directory
+1. CLI `--tui-config` explicit path
+2. `.picho/tui.json` in the current directory
+3. `~/.picho/tui.json` in the user home directory
 
-If neither file exists yet, a default `.picho/tui.json` is created in the
+If none of these exist, a default `.picho/tui.json` is created in the
 current directory.
 
 Detailed TUI configuration reference:

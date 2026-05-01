@@ -107,20 +107,26 @@ def get_cli_config_fallback_path() -> Path:
     return Path.home() / ".picho" / "tui.json"
 
 
-def find_cli_config_path() -> Path | None:
+def find_cli_config_path(explicit_path: str | None = None) -> Path | None:
     """Find the active TUI config path.
 
-    Search order mirrors ``chat.find_config()`` for runner config:
-    project-local first, then the user's global ``~/.picho/tui.json``.
+    Search order:
+    1. CLI ``--tui-config`` explicit path
+    2. Project-local ``.picho/tui.json``
+    3. User-global ``~/.picho/tui.json``
     """
+    if explicit_path:
+        p = Path(explicit_path).expanduser().resolve()
+        if p.exists():
+            return p
     for path in (get_cli_config_path(), get_cli_config_fallback_path()):
         if path.exists():
             return path
     return None
 
 
-def load_cli_config() -> CLIConfig:
-    config_path = find_cli_config_path()
+def load_cli_config(explicit_path: str | None = None) -> CLIConfig:
+    config_path = find_cli_config_path(explicit_path)
 
     if config_path and config_path.exists():
         try:
@@ -131,14 +137,12 @@ def load_cli_config() -> CLIConfig:
             return CLIConfig.default()
     else:
         config = CLIConfig.default()
-        save_cli_config(config)
+        save_cli_config(config, explicit_path=explicit_path)
         return config
 
 
-def save_cli_config(config: CLIConfig) -> None:
-    # Save back to whichever config file is currently active. If neither a
-    # local nor global file exists yet, create a new project-local config.
-    config_path = find_cli_config_path() or get_cli_config_path()
+def save_cli_config(config: CLIConfig, *, explicit_path: str | None = None) -> None:
+    config_path = find_cli_config_path(explicit_path) or get_cli_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(config_path, "w", encoding="utf-8") as f:

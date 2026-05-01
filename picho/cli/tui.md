@@ -29,10 +29,17 @@
 
 `load_cli_config()` 会按以下顺序查找 TUI 配置：
 
-1. 当前工作区的 `.picho/tui.json`
-2. 用户目录下的 `~/.picho/tui.json`
+1. CLI 选项 `--tui-config` 指定的路径
+2. 当前工作区的 `.picho/tui.json`
+3. 用户目录下的 `~/.picho/tui.json`
 
-如果两处都不存在，首次运行时会自动在当前工作区创建 `.picho/tui.json`。
+如果三处都不存在，首次运行时会自动在当前工作区创建 `.picho/tui.json`。
+
+使用 `--tui-config` 指定路径：
+
+```bash
+picho chat --tui-config /path/to/my-tui.json
+```
 
 ---
 

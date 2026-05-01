@@ -69,6 +69,7 @@ picho chat [OPTIONS]
 - `-c, --config` - 配置 JSON 文件路径
 - `-r, --runner` - Python 模块路径，模块需导出 `runner` 变量
 - `-v, --verbose` - 启用详细日志
+- `-t, --tui-config` - TUI 配置 JSON 文件路径
 
 示例：
 ```bash
@@ -80,6 +81,9 @@ picho chat -c /path/to/config.json
 
 # 从 Python 模块加载动态 Runner
 picho chat -r my_runner.py
+
+# 指定 TUI 配置文件
+picho chat --tui-config /path/to/my-tui.json
 ```
 
 #### 动态 Runner 模块
@@ -207,10 +211,11 @@ print(config.log.console_output)
 
 `load_cli_config()` 会按以下顺序查找 TUI 配置：
 
-- 当前目录下的 `.picho/tui.json`
-- 用户目录下的 `~/.picho/tui.json`
+1. CLI `--tui-config` 显式指定的路径
+2. 当前目录下的 `.picho/tui.json`
+3. 用户目录下的 `~/.picho/tui.json`
 
-如果这两处都不存在，则会在当前目录自动创建默认的 `.picho/tui.json`。
+如果这三处都不存在，则会在当前目录自动创建默认的 `.picho/tui.json`。
 
 TUI 配置项的详细说明见：
 
