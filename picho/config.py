@@ -217,6 +217,7 @@ class AgentConfig:
     instructions: str = "You are a helpful AI assistant named picho."
     thinking_level: Literal["auto", "enabled", "disabled"] = "auto"
     builtin: BuiltinConfig = field(default_factory=BuiltinConfig)
+    tools: list[str] = field(default_factory=list)
     compaction: CompactionConfig = field(default_factory=CompactionConfig)
     steering_mode: Literal["all", "one-at-a-time"] = "one-at-a-time"
     follow_up_mode: Literal["all", "one-at-a-time"] = "one-at-a-time"
@@ -233,6 +234,7 @@ class AgentConfig:
             ),
             thinking_level=data.get("thinking_level", "auto"),
             builtin=BuiltinConfig.from_dict(data.get("builtin")),
+            tools=data.get("tools", []),
             compaction=CompactionConfig.from_dict(data.get("compaction")),
             steering_mode=data.get("steering_mode", "one-at-a-time"),
             follow_up_mode=data.get("follow_up_mode", "one-at-a-time"),

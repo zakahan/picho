@@ -245,6 +245,7 @@ picho/
 
 
 - `read` 支持扩展与替换：可通过 `agent.builtin.tool_config.read.extensions` 注册新的读取扩展；自定义扩展会优先于内置读取器匹配，因此既可以支持新文件类型，也可以替换 `.pdf`、`.docx` 等默认读取链路。
+- 自定义工具可以通过 `agent.tools` 挂载，指向类似 `my_project.tools:create_tools` 的工具工厂函数。这样可以把 picho 内置的本地工具和应用层工具分开。
 - `skill` 也同样支持扩展：除了内置 skill 之外，你还可以把自定义 skill 放到 `.picho/skills`，或者通过 `path.skills` 指向别的目录。
 
 

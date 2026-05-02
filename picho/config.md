@@ -153,6 +153,76 @@ Agent 相关配置。
 - `debug` - 调试助手
 - `skill-creator` - 创建自定义技能
 
+#### agent.tools
+
+自定义工具工厂列表。每个条目使用 `module:function` 或 `path.py:function`
+格式；相对 `.py` 路径会按当前 executor workspace 解析。工厂会在 Runner
+创建 Agent 时被调用，并收到 `ToolFactoryContext`。
+
+| 类型 | 默认值 | 说明 |
+|------|--------|------|
+| string[] | `[]` | 额外挂载到 Agent 的自定义工具工厂 |
+
+工厂必须是同步函数，返回 `Tool` 或 `list[Tool]`。如果自定义工具与内置工具重名，Runner 会报错。
+
+导入规则：
+
+- `my_package.tools:create_tools` 会通过 Python import 加载 `my_package.tools`，再读取 `create_tools`
+- `.picho/tools/custom_tools.py:create_tools` 会按 `.py` 文件路径加载；相对路径基于 `path.executor` 对应的 workspace
+- `/absolute/path/custom_tools.py:create_tools` 会按绝对文件路径加载
+- 冒号右侧支持点号属性，例如 `my_package.tools:Factory.create_tools`
+
+示例一，从已安装或可 import 的包中加载：
+
+```json
+{
+  "agent": {
+    "tools": ["my_project.tools.webfetch:create_tools"]
+  }
+}
+```
+
+示例二，从 executor workspace 下的相对路径加载。假设 `path.executor` 是
+`/workspace/project`：
+
+```json
+{
+  "agent": {
+    "tools": [".picho/tools/custom_tools.py:create_tools"]
+  }
+}
+```
+
+实际加载文件为：
+
+```text
+/workspace/project/.picho/tools/custom_tools.py
+```
+
+最小示例：
+
+```python
+from picho.builtin import pi_tool
+
+
+def create_tools(context):
+    @pi_tool(name="workspace_info")
+    def workspace_info() -> str:
+        return context.workspace
+
+    return [workspace_info]
+```
+
+配置：
+
+```json
+{
+  "agent": {
+    "tools": [".picho/tools/custom_tools.py:create_tools"]
+  }
+}
+```
+
 #### agent.builtin.tool_config.read
 
 `read` 工具专属配置。

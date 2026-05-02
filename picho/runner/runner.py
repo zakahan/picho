@@ -181,8 +181,8 @@ class Runner:
 
         tools = []
         builtin_tool_names = acfg.builtin.tool
-        if builtin_tool_names:
-            from ..builtin.tool import create_builtin_tools
+        custom_tool_specs = acfg.tools
+        if builtin_tool_names or custom_tool_specs:
             from ..tool.executor import create_executor
 
             executor_env = (
@@ -204,22 +204,40 @@ class Runner:
                 if hasattr(acfg, "executor") and acfg.executor.init_command
                 else None
             )
-            all_builtin_tools = create_builtin_tools(
-                executor,
-                env_path=env_path,
-                init_command=init_command,
-                read_config=acfg.builtin.tool_config.read,
-                cache_root=self._config.path.cache_path,
-            )
 
-            tool_map = {tool.name: tool for tool in all_builtin_tools}
-            for name in builtin_tool_names:
-                if name in tool_map:
-                    tools.append(tool_map[name])
+            if builtin_tool_names:
+                from ..builtin.tool import create_builtin_tools
 
-            _log.debug(
-                f"Created {len(tools)} builtin tools with cwd={effective_workspace}"
-            )
+                all_builtin_tools = create_builtin_tools(
+                    executor,
+                    env_path=env_path,
+                    init_command=init_command,
+                    read_config=acfg.builtin.tool_config.read,
+                    cache_root=self._config.path.cache_path,
+                )
+
+                tool_map = {tool.name: tool for tool in all_builtin_tools}
+                for name in builtin_tool_names:
+                    if name in tool_map:
+                        tools.append(tool_map[name])
+
+            if custom_tool_specs:
+                from ..tool import ToolFactoryContext, load_custom_tools
+
+                custom_tools = load_custom_tools(
+                    custom_tool_specs,
+                    ToolFactoryContext(
+                        workspace=effective_workspace,
+                        cache_root=self._config.path.cache_path,
+                        config=self._config,
+                        executor=executor,
+                    ),
+                )
+                tools.extend(custom_tools)
+
+            self._validate_unique_tool_names(tools)
+
+            _log.debug(f"Created {len(tools)} tools with cwd={effective_workspace}")
 
         agent = Agent(
             model=get_model(
@@ -239,6 +257,17 @@ class Runner:
         )
 
         return agent
+
+    def _validate_unique_tool_names(self, tools: list[Any]) -> None:
+        seen: set[str] = set()
+        duplicates: list[str] = []
+        for tool in tools:
+            if tool.name in seen:
+                duplicates.append(tool.name)
+            seen.add(tool.name)
+        if duplicates:
+            names = ", ".join(sorted(set(duplicates)))
+            raise ValueError(f"Duplicate tool names are not allowed: {names}")
 
     def _create_session_manager(
         self, session_file: str | None = None
