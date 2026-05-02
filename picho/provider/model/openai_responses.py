@@ -30,6 +30,7 @@ from ..types import (
     StopReason,
     Tool,
     ThinkingLevel,
+    emit_payload,
     extract_text_content,
     normalize_content_blocks,
 )
@@ -287,6 +288,8 @@ class OpenAIResponsesModel(Model):
                                 "summary": "auto",
                             }
                             params["include"] = ["reasoning.encrypted_content"]
+
+                await emit_payload(options, params, self)
 
                 response = await client.responses.create(**params)
 

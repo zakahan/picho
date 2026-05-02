@@ -7,6 +7,7 @@ Define the core types required for LLM interaction.
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal, Union
+import inspect
 import time
 
 from ..tool import Tool
@@ -228,8 +229,21 @@ class StreamOptions:
     temperature: float | None = None
     max_tokens: int | None = None
     signal: Any = None
+    on_payload: Any = None
     thinking_level: ThinkingLevel = "auto"
     extra_headers: dict[str, str] | None = None
     extra_query: dict[str, str] | None = None
     extra_body: dict[str, Any] | None = None
     timeout: float | None = None
+
+
+async def emit_payload(
+    options: StreamOptions | None,
+    payload: dict[str, Any],
+    model: Any,
+) -> None:
+    if not options or not options.on_payload:
+        return
+    result = options.on_payload(payload, model)
+    if inspect.isawaitable(result):
+        await result

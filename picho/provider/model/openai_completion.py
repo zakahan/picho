@@ -29,6 +29,7 @@ from ..types import (
     Usage,
     StopReason,
     ThinkingLevel,
+    emit_payload,
     extract_text_content,
     normalize_content_blocks,
 )
@@ -244,6 +245,8 @@ class OpenAICompletionModel(Model):
                         reasoning_effort = clamp_reasoning(options.thinking_level)
                         if reasoning_effort:
                             kwargs["reasoning_effort"] = reasoning_effort
+
+                await emit_payload(options, kwargs, self)
 
                 response = await client.chat.completions.create(**kwargs)
 

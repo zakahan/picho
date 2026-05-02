@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from ..agent import Agent, AgentEvent
 from ..agent.types import RunContext
 from ..session import SessionManager
+from ..session.raw import RawSessionWriter, raw_session_dir_for_sessions_path
 from ..session.compaction import (
     CompactionSettings,
     prepare_compaction,
@@ -20,7 +21,13 @@ from ..session.compaction import (
 from ..provider.types import Message
 from ..skills import load_skills, Skill
 from ..config import Config
-from ..logger import get_logger, set_log_dir, log_context, log_exception
+from ..logger import (
+    get_logger,
+    set_log_dir,
+    log_context,
+    get_log_context,
+    log_exception,
+)
 from ..observability import configure_observability
 
 _log = get_logger(__name__)
@@ -31,6 +38,7 @@ class SessionState:
     agent: Agent
     session: SessionManager
     workspace: str
+    raw_session: RawSessionWriter | None = None
     compaction_settings: CompactionSettings = field(default_factory=CompactionSettings)
     _unsubscribe: Callable[[], None] | None = field(default=None, repr=False)
     _compaction_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -307,14 +315,49 @@ class Runner:
         self._sync_agent_messages_from_session(state)
 
     def _build_run_context(self, session_id: str, state: SessionState) -> RunContext:
+        run_state: dict[str, Any] = {}
+        if state.raw_session:
+            run_state["on_payload"] = self._build_raw_payload_callback(
+                session_id, state
+            )
         return RunContext(
             # Keep a stable agent identity for callbacks/logging and future multi-agent flows.
             agent_name="agent",
             session_id=session_id,
             session_file=state.session.get_session_file() or "",
             workspace=state.workspace,
-            state={},
+            state=run_state,
         )
+
+    def _build_raw_payload_callback(
+        self, session_id: str, state: SessionState
+    ) -> Callable[[dict[str, Any], Any], None]:
+        def on_payload(payload: dict[str, Any], model: Any) -> None:
+            if not state.raw_session:
+                return
+            try:
+                state.raw_session.write_model_request(
+                    session_id=session_id,
+                    invocation_id=get_log_context().get("invocation_id", ""),
+                    provider=getattr(model, "model_provider", ""),
+                    model=getattr(model, "model_name", ""),
+                    payload=payload,
+                )
+            except Exception as error:
+                log_exception(_log, "Raw session write failed", error)
+
+        return on_payload
+
+    def _create_raw_session_writer(
+        self, session: SessionManager
+    ) -> RawSessionWriter | None:
+        if not self._config.debug.raw_session:
+            return None
+        session_file = session.get_session_file()
+        if not session_file:
+            return None
+        raw_dir = raw_session_dir_for_sessions_path(str(Path(session_file).parent))
+        return RawSessionWriter(session_file=session_file, raw_session_dir=raw_dir)
 
     def _on_agent_event(self, session_id: str, event: AgentEvent) -> None:
         state = self._sessions.get(session_id)
@@ -406,6 +449,7 @@ class Runner:
             agent=agent,
             session=session,
             workspace=workspace,
+            raw_session=self._create_raw_session_writer(session),
             compaction_settings=compaction_settings,
         )
         self._sessions[sid] = state
@@ -433,6 +477,7 @@ class Runner:
             agent=agent,
             session=session,
             workspace=workspace,
+            raw_session=self._create_raw_session_writer(session),
             compaction_settings=compaction_settings,
         )
         self._restore_agent_from_session(state)
@@ -674,6 +719,7 @@ class Runner:
             agent=new_agent,
             session=new_session,
             workspace=state.workspace,
+            raw_session=self._create_raw_session_writer(new_session),
             compaction_settings=self._get_compaction_settings(),
         )
         self._restore_agent_from_session(new_state)

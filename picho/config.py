@@ -269,6 +269,19 @@ class ObservabilityConfig:
 
 
 @dataclass
+class DebugConfig:
+    raw_session: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "DebugConfig":
+        if data is None:
+            return cls()
+        return cls(
+            raw_session=data.get("raw_session", False),
+        )
+
+
+@dataclass
 class PathConfig:
     base: str = ""
     logs: str | None = None
@@ -350,6 +363,7 @@ class Config:
     agent: AgentConfig = field(default_factory=AgentConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
+    debug: DebugConfig = field(default_factory=DebugConfig)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Config":
@@ -360,4 +374,5 @@ class Config:
             agent=AgentConfig.from_dict(data.get("agent")),
             session=SessionConfig.from_dict(data.get("session_manager")),
             observability=ObservabilityConfig.from_dict(data.get("observability")),
+            debug=DebugConfig.from_dict(data.get("debug")),
         )

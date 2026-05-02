@@ -13,6 +13,7 @@ session/
 ├── __init__.py          # 模块导出
 ├── types.py             # 类型定义
 ├── manager.py           # 会话管理器
+├── raw.py               # provider 原始 payload 调试日志
 └── compaction.py        # 上下文压缩
 ```
 
@@ -46,6 +47,29 @@ session = manager.load("/path/to/session.json")
 # 列出会话
 sessions = manager.list_sessions()
 ```
+
+## Raw Session 调试日志
+
+普通 session 文件记录的是 picho 内部消息对象。如果需要查看最终实际发送给
+模型 provider 的 request payload，可以开启：
+
+```json
+{
+  "debug": {
+    "raw_session": true
+  }
+}
+```
+
+Raw session 快照文件会写在普通 session 目录旁边，并复用相同 session id：
+
+```text
+<base>/sessions/session_abc123.jsonl
+<base>/raw_session/session_abc123.json
+```
+
+每次模型请求都会覆盖写这个文件，因此它始终展示最新一次 provider payload 快照。
+Raw session 只记录 provider payload 和基础元信息，不记录 headers 或 API key。
 
 ## 会话类型
 

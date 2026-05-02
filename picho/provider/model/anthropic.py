@@ -30,6 +30,7 @@ from ..types import (
     ToolResultMessage,
     Usage,
     UserMessage,
+    emit_payload,
     extract_text_content,
     normalize_content_blocks,
 )
@@ -285,6 +286,8 @@ class AnthropicModel(Model):
                             "type": "enabled",
                             "budget_tokens": _thinking_budget(options.thinking_level),
                         }
+
+                await emit_payload(options, params, self)
 
                 response = await client.messages.create(**params)
                 stream.push(StreamEvent(type="message_start"))

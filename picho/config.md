@@ -57,6 +57,9 @@
   },
   "session_manager": {
     "persist": true
+  },
+  "debug": {
+    "raw_session": false
   }
 }
 ```
@@ -381,6 +384,33 @@ Bash 工具执行器配置。
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `persist` | boolean | `true` | 是否持久化会话 |
+
+---
+
+### debug
+
+调试配置。默认关闭，开启后会额外记录 provider 层实际发送给模型的
+request payload，用于排查内部 session 与模型实际输入不一致的问题。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `raw_session` | boolean | `false` | 是否记录 provider 最终请求 payload |
+
+`raw_session` 快照文件存放在普通 session 目录旁边。例如普通 session 文件是：
+
+```text
+<base>/sessions/session_abc123.jsonl
+```
+
+对应 raw session 快照文件是：
+
+```text
+<base>/raw_session/session_abc123.json
+```
+
+如果显式配置了 `path.sessions`，`raw_session` 仍会作为它的兄弟目录创建。
+raw session 每次模型请求都会覆盖写最新 provider payload 快照，只记录 payload
+与必要元信息，不记录 headers 或 API key。
 
 ---
 

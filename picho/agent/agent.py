@@ -521,6 +521,7 @@ class Agent:
             thinking_level=self._state.thinking_level,
             get_steering_messages=get_steering,
             get_follow_up_messages=get_follow_up,
+            on_payload=resolved_run_context.state.get("on_payload"),
             callbacks=self._callbacks,
             callback_context=resolved_run_context,
             hooks=self._build_loop_hooks(),

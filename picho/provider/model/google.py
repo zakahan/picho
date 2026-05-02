@@ -32,6 +32,7 @@ from ..types import (
     ToolResultMessage,
     Usage,
     UserMessage,
+    emit_payload,
     extract_text_content,
     normalize_content_blocks,
 )
@@ -290,6 +291,13 @@ class GoogleModel(Model):
                             streamFunctionCallArguments=True,
                         )
                     )
+
+                raw_payload: dict[str, Any] = {
+                    "model": self.model_name,
+                    "contents": messages,
+                    "config": config,
+                }
+                await emit_payload(options, raw_payload, self)
 
                 response = client.aio.models.generate_content_stream(
                     model=self.model_name,

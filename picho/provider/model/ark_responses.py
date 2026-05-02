@@ -32,6 +32,7 @@ from ..types import (
     Tool,
     ThinkingLevel,
     VideoFileIdContent,
+    emit_payload,
     extract_text_content,
     normalize_content_blocks,
 )
@@ -403,6 +404,8 @@ class ArkResponsesModel(Model):
                 timeout = params.pop("timeout", 60.0)
 
                 url = f"{self.base_url.rstrip('/')}/responses"
+
+                await emit_payload(options, params, self)
 
                 content_blocks: list[Any] = []
                 current_item_id: str | None = None

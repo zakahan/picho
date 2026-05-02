@@ -560,6 +560,7 @@ async def _stream_assistant_response(
         max_tokens=config.max_tokens,
         thinking_level=config.thinking_level,
         signal=signal,
+        on_payload=config.on_payload,
     )
 
     _log.debug(

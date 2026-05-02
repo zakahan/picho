@@ -13,6 +13,7 @@ session/
 ├── __init__.py          # Module exports
 ├── types.py             # Type definitions
 ├── manager.py           # Session manager
+├── raw.py               # Raw provider payload debug logs
 └── compaction.py        # Context compaction
 ```
 
@@ -46,6 +47,30 @@ session = manager.load("/path/to/session.json")
 # List sessions
 sessions = manager.list_sessions()
 ```
+
+## Raw Session Debug Logs
+
+Normal session files store picho's internal message objects. To inspect the final
+provider request payload that is actually sent to the model, enable:
+
+```json
+{
+  "debug": {
+    "raw_session": true
+  }
+}
+```
+
+Raw session snapshots are written next to the normal session directory, with
+matching session ids:
+
+```text
+<base>/sessions/session_abc123.jsonl
+<base>/raw_session/session_abc123.json
+```
+
+The file is overwritten on each model request, so it always shows the latest
+provider payload snapshot. Headers and API keys are not recorded.
 
 ## Session Types
 

@@ -19,6 +19,7 @@ from ..types import (
     ToolCall,
     ToolResultMessage,
     UserMessage,
+    emit_payload,
     extract_text_content,
 )
 
@@ -46,6 +47,15 @@ class MockModel(Model):
                 None if tool_result_text else _parse_mock_tool_request(user_text)
             )
             response_text = tool_result_text or user_text or "Mock response"
+            await emit_payload(
+                options,
+                {
+                    "model": self.model_name,
+                    "messages": context.messages,
+                    "tools": context.tools,
+                },
+                self,
+            )
 
             if (
                 options
