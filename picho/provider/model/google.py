@@ -32,6 +32,8 @@ from ..types import (
     ToolResultMessage,
     Usage,
     UserMessage,
+    extract_text_content,
+    normalize_content_blocks,
 )
 from ...logger import format_exception, get_logger, log_exception
 from ...tool import Tool
@@ -122,7 +124,7 @@ def _make_google_parts(
         return [types_module.Part.from_text(text=blocks)] if blocks.strip() else []
 
     parts: list[Any] = []
-    for block in blocks:
+    for block in normalize_content_blocks(blocks):
         if isinstance(block, TextContent) and block.text:
             parts.append(types_module.Part.from_text(text=block.text))
         elif supports_image and isinstance(block, ImageBase64Content):
@@ -172,12 +174,9 @@ def to_google_messages(
                 messages.append(types_module.Content(role="model", parts=parts))
 
         elif isinstance(msg, ToolResultMessage):
+            content = normalize_content_blocks(msg.content)
             response_payload = {
-                "content": "\n".join(
-                    block.text
-                    for block in msg.content
-                    if isinstance(block, TextContent) and block.text
-                ),
+                "content": extract_text_content(content),
                 "is_error": msg.is_error,
             }
             tool_name = msg.tool_name or _tool_result_name(msg.tool_call_id)
@@ -195,7 +194,7 @@ def to_google_messages(
 
             extra_parts = [
                 part
-                for part in _make_google_parts(msg.content, input_types, types_module)
+                for part in _make_google_parts(content, input_types, types_module)
                 if _get_value(part, "inline_data", "inlineData")
                 or _get_value(part, "file_data", "fileData")
             ]

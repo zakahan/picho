@@ -19,6 +19,7 @@ from ..types import (
     ToolCall,
     ToolResultMessage,
     UserMessage,
+    extract_text_content,
 )
 
 default_mock_model = "mock-model"
@@ -132,12 +133,9 @@ def _get_last_tool_result_text(context: Context) -> str:
         if not isinstance(message, ToolResultMessage):
             continue
 
-        text_parts: list[str] = []
-        for block in message.content:
-            if isinstance(block, TextContent) and block.text.strip():
-                text_parts.append(block.text)
-        if text_parts:
-            return "\n".join(text_parts)
+        text = extract_text_content(message.content).strip()
+        if text:
+            return text
     return ""
 
 

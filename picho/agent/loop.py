@@ -32,6 +32,7 @@ from ..provider.types import (
     ThinkingContent,
     Usage,
     VideoFileIdContent,
+    normalize_content_blocks,
 )
 from ..tool import ToolResult
 from ..logger import format_exception, get_logger, log_exception
@@ -827,6 +828,17 @@ async def _execute_tool_calls(
             if modified_result:
                 result = modified_result
                 is_error = result.is_error
+
+            try:
+                result.content = normalize_content_blocks(result.content)
+            except ValueError as err:
+                error_text = format_exception(err)
+                result = ToolResult(
+                    content=[TextContent(type="text", text=error_text)],
+                    details={"error": error_text},
+                    is_error=True,
+                )
+                is_error = True
 
             text_len = 0
             if result.content:

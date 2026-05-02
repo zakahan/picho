@@ -90,6 +90,11 @@ result = ToolResult(
 )
 ```
 
+`ToolResult.content` accepts picho content objects such as
+`TextContent(type="text", text="Success")` and public dict content blocks such as
+`{"type": "text", "text": "Success"}`. Dict blocks are normalized before they are
+sent back to the model, so custom tools may use the shape shown above.
+
 ## Executors
 
 ### HostExecutor

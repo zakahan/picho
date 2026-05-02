@@ -32,6 +32,8 @@ from ..types import (
     Tool,
     ThinkingLevel,
     VideoFileIdContent,
+    extract_text_content,
+    normalize_content_blocks,
 )
 from ...logger import format_exception, get_logger, log_exception
 
@@ -198,13 +200,12 @@ async def to_ark_messages(
                 )
 
         elif isinstance(msg, ToolResultMessage):
-            text_result = "\n".join(
-                c.text for c in msg.content if isinstance(c, TextContent)
-            )
-            has_videos = any(isinstance(c, VideoFileIdContent) for c in msg.content)
+            content = normalize_content_blocks(msg.content)
+            text_result = extract_text_content(content)
+            has_videos = any(isinstance(c, VideoFileIdContent) for c in content)
             has_images = any(
                 isinstance(c, (ImageBase64Content, ImageUrlContent, ImageFileIdContent))
-                for c in msg.content
+                for c in content
             )
             has_text = len(text_result) > 0
             call_id = (
@@ -223,7 +224,7 @@ async def to_ark_messages(
 
             if has_images and supports_image:
                 image_blocks = []
-                for block in msg.content:
+                for block in content:
                     if isinstance(block, ImageBase64Content):
                         image_blocks.append(
                             {
@@ -261,7 +262,7 @@ async def to_ark_messages(
 
             if has_videos and supports_video:
                 video_blocks = []
-                for block in msg.content:
+                for block in content:
                     if isinstance(block, VideoFileIdContent):
                         video_blocks.append(
                             {

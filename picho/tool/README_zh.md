@@ -90,6 +90,11 @@ result = ToolResult(
 )
 ```
 
+`ToolResult.content` 支持 picho 内容对象，例如
+`TextContent(type="text", text="Success")`，也支持公开文档中的 dict 内容块，
+例如 `{"type": "text", "text": "Success"}`。dict 内容块会在返回给模型前被
+归一化，因此自定义工具可以继续使用上面的写法。
+
 ## 执行器
 
 ### HostExecutor

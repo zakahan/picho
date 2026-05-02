@@ -30,6 +30,8 @@ from ..types import (
     ToolResultMessage,
     Usage,
     UserMessage,
+    extract_text_content,
+    normalize_content_blocks,
 )
 from ...logger import format_exception, get_logger, log_exception
 from ...tool import Tool
@@ -79,15 +81,12 @@ def _convert_tool_result_content(
     message: ToolResultMessage,
 ) -> str | list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
-    text_parts = [
-        block.text
-        for block in message.content
-        if isinstance(block, TextContent) and block.text
-    ]
-    if text_parts:
-        blocks.append({"type": "text", "text": "\n".join(text_parts)})
+    content = normalize_content_blocks(message.content)
+    text = extract_text_content(content)
+    if text:
+        blocks.append({"type": "text", "text": text})
 
-    for block in message.content:
+    for block in content:
         if isinstance(block, ImageBase64Content):
             blocks.append(
                 {

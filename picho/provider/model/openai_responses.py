@@ -30,6 +30,8 @@ from ..types import (
     StopReason,
     Tool,
     ThinkingLevel,
+    extract_text_content,
+    normalize_content_blocks,
 )
 from ...logger import get_logger
 
@@ -138,12 +140,10 @@ def to_openai_messages(
                 )
 
         elif isinstance(msg, ToolResultMessage):
-            text_result = "\n".join(
-                c.text for c in msg.content if isinstance(c, TextContent)
-            )
+            content = normalize_content_blocks(msg.content)
+            text_result = extract_text_content(content)
             has_images = any(
-                isinstance(c, (ImageBase64Content, ImageUrlContent))
-                for c in msg.content
+                isinstance(c, (ImageBase64Content, ImageUrlContent)) for c in content
             )
             has_text = len(text_result) > 0
 
@@ -163,7 +163,7 @@ def to_openai_messages(
 
             if has_images and supports_image:
                 image_blocks = []
-                for block in msg.content:
+                for block in content:
                     if isinstance(block, ImageBase64Content):
                         image_blocks.append(
                             {

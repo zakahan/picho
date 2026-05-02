@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import asyncio
+
 from picho.provider.model.anthropic import AnthropicModel, to_anthropic_messages
+from picho.provider.model.ark_responses import to_ark_messages
 from picho.provider.model.factory import get_available_providers, get_model
 from picho.provider.model.google import GoogleModel, to_google_messages
-from picho.provider.model.openai_completion import to_openai_messages
+from picho.provider.model.openai_completion import (
+    to_openai_messages as to_openai_completion_messages,
+)
+from picho.provider.model.openai_responses import (
+    to_openai_messages as to_openai_responses_messages,
+)
 from picho.provider.types import (
     AssistantMessage,
     Context,
@@ -115,7 +123,7 @@ def test_openai_completion_messages_use_standard_tool_calls_shape():
         ],
     )
 
-    messages = to_openai_messages(context, ["text"])
+    messages = to_openai_completion_messages(context, ["text"])
 
     assert messages == [
         {"role": "system", "content": "System prompt"},
@@ -134,6 +142,52 @@ def test_openai_completion_messages_use_standard_tool_calls_shape():
             ],
         },
     ]
+
+
+def test_provider_messages_preserve_dict_text_tool_results():
+    context = Context(
+        messages=[
+            ToolResultMessage(
+                tool_call_id="call_1|opaque",
+                tool_name="webfetch",
+                is_error=False,
+                content=[
+                    {
+                        "type": "text",
+                        "text": "Read status: success\nDocument text.",
+                    }
+                ],
+            )
+        ],
+    )
+
+    completion_messages = to_openai_completion_messages(context, ["text"])
+    assert completion_messages == [
+        {
+            "role": "tool",
+            "tool_call_id": "call_1|opaque",
+            "content": "Read status: success\nDocument text.",
+        }
+    ]
+
+    openai_responses_messages, _ = to_openai_responses_messages(context, ["text"])
+    assert openai_responses_messages == [
+        {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "Read status: success\nDocument text.",
+        }
+    ]
+
+    ark_messages, _ = asyncio.run(to_ark_messages(context, ["text"]))
+    assert ark_messages == [
+        {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "Read status: success\nDocument text.",
+        }
+    ]
+    assert "(see attached image)" not in ark_messages[0]["output"]
 
 
 def test_anthropic_messages_convert_tool_result_images():

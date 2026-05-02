@@ -46,7 +46,6 @@ def test_runner_agent_executes_custom_tool_factory_end_to_end(
     factory_path.write_text(
         """
 from picho.builtin import pi_tool
-from picho.provider.types import TextContent
 from picho.tool import Tool, ToolParameter, ToolResult
 
 
@@ -60,7 +59,7 @@ def create_tools(context):
 
     async def execute_manual(tool_call_id, params, signal=None, on_update=None):
         return ToolResult(
-            content=[TextContent(type="text", text=f"manual:{params['value']}")]
+            content=[{"type": "text", "text": f"manual:{params['value']}"}]
         )
 
     manual_tool = Tool.create(
@@ -135,3 +134,21 @@ def create_tools(context):
     assert messages[2].tool_name == "context_echo"
     assert messages[2].content[0].text == expected_text
     assert messages[3].content[0].text == expected_text
+
+    manual_session_id = runner.create_session()
+    manual_state = runner.get_session(manual_session_id)
+    assert manual_state is not None
+
+    asyncio.run(
+        runner.prompt(
+            manual_session_id,
+            'mock_tool_call:{"name":"manual_echo","arguments":{"value":"world"}}',
+        )
+    )
+
+    messages = manual_state.agent.state.messages
+    assert messages[-2].role == "toolResult"
+    assert messages[-2].tool_name == "manual_echo"
+    assert messages[-2].content[0].text == "manual:world"
+    assert messages[-3].content[0].name == "manual_echo"
+    assert messages[-1].content[0].text == "manual:world"

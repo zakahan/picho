@@ -83,6 +83,90 @@ ContentBlock = Union[
     ToolCall,
 ]
 
+ToolResultContentBlock = Union[
+    TextContent,
+    ImageBase64Content,
+    ImageUrlContent,
+    ImageFileIdContent,
+    VideoFileIdContent,
+    str,
+    dict[str, Any],
+]
+
+
+def normalize_content_block(block: Any) -> ContentBlock:
+    """Normalize public content block shapes into picho provider dataclasses."""
+    if isinstance(
+        block,
+        (
+            TextContent,
+            ImageBase64Content,
+            ImageUrlContent,
+            ImageFileIdContent,
+            VideoFileIdContent,
+            ThinkingContent,
+            ToolCall,
+        ),
+    ):
+        return block
+
+    if isinstance(block, str):
+        return TextContent(type="text", text=block)
+
+    if isinstance(block, dict):
+        block_type = block.get("type", "text")
+        if block_type in {"text", "input_text", "output_text"}:
+            return TextContent(type="text", text=str(block.get("text", "")))
+        if block_type == "image_base64":
+            return ImageBase64Content(
+                type="image_base64",
+                data=str(block.get("data", "")),
+                mime_type=str(block.get("mime_type", "image/png")),
+            )
+        if block_type in {"image_url", "input_image"}:
+            return ImageUrlContent(
+                type="image_url",
+                url=str(block.get("url") or block.get("image_url") or ""),
+            )
+        if block_type == "image_file_id":
+            return ImageFileIdContent(
+                type="image_file_id",
+                file_id=str(block.get("file_id", "")),
+            )
+        if block_type in {"video_file_id", "input_video"}:
+            return VideoFileIdContent(
+                type="video_file_id",
+                file_path=block.get("file_path"),
+                file_id=block.get("file_id"),
+            )
+        if block_type == "thinking":
+            return ThinkingContent(
+                type="thinking",
+                thinking=str(block.get("thinking", "")),
+            )
+        if block_type == "toolCall":
+            return ToolCall(
+                type="toolCall",
+                id=str(block.get("id", "")),
+                name=str(block.get("name", "")),
+                arguments=block.get("arguments", {}) or {},
+                _args_str=str(block.get("_args_str", "")),
+            )
+
+    raise ValueError(f"Unsupported content block: {type(block).__name__}")
+
+
+def normalize_content_blocks(content: list[Any]) -> list[ContentBlock]:
+    return [normalize_content_block(block) for block in content]
+
+
+def extract_text_content(content: list[Any]) -> str:
+    return "\n".join(
+        block.text
+        for block in normalize_content_blocks(content)
+        if isinstance(block, TextContent) and block.text
+    )
+
 
 @dataclass
 class Usage:
@@ -121,13 +205,7 @@ class ToolResultMessage:
     role: Literal["toolResult"] = "toolResult"
     tool_call_id: str = ""
     tool_name: str = ""
-    content: list[
-        TextContent
-        | ImageBase64Content
-        | ImageUrlContent
-        | ImageFileIdContent
-        | VideoFileIdContent
-    ] = field(default_factory=list)
+    content: list[ToolResultContentBlock] = field(default_factory=list)
     is_error: bool = False
     details: Any = None
 
