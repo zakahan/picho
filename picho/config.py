@@ -215,6 +215,7 @@ class ExecutorConfig:
 class AgentConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     instructions: str = "You are a helpful AI assistant named picho."
+    instructions_files: list[str] = field(default_factory=list)
     thinking_level: Literal["auto", "enabled", "disabled"] = "auto"
     builtin: BuiltinConfig = field(default_factory=BuiltinConfig)
     tools: list[str] = field(default_factory=list)
@@ -227,11 +228,29 @@ class AgentConfig:
     def from_dict(cls, data: dict | None) -> "AgentConfig":
         if data is None:
             return cls()
+
+        raw_instructions = data.get("instructions")
+        raw_instructions_files = data.get("instructions_files")
+
+        if raw_instructions is not None and raw_instructions_files is not None:
+            raise ValueError(
+                "'instructions' and 'instructions_files' are mutually exclusive; "
+                "use one or the other, not both."
+            )
+
+        if raw_instructions_files is not None:
+            instructions = ""
+            instructions_files = raw_instructions_files
+        else:
+            instructions = (
+                raw_instructions or "You are a helpful AI assistant named picho."
+            )
+            instructions_files = []
+
         return cls(
             model=ModelConfig.from_dict(data.get("model")),
-            instructions=data.get(
-                "instructions", "You are a helpful AI assistant named picho."
-            ),
+            instructions=instructions,
+            instructions_files=instructions_files,
             thinking_level=data.get("thinking_level", "auto"),
             builtin=BuiltinConfig.from_dict(data.get("builtin")),
             tools=data.get("tools", []),

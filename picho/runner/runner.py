@@ -109,7 +109,13 @@ class Runner:
         return workspace
 
     def _build_agent_instructions(self, workspace: str) -> str:
-        instructions = self._config.agent.instructions
+        acfg = self._config.agent
+
+        if acfg.instructions_files:
+            instructions = self._read_instructions_files(acfg.instructions_files)
+        else:
+            instructions = acfg.instructions
+
         default_workspace = self._config.path.executor_path
         if (
             default_workspace
@@ -118,6 +124,22 @@ class Runner:
         ):
             return instructions.replace(default_workspace, workspace)
         return instructions
+
+    def _read_instructions_files(self, files: list[str]) -> str:
+        base = self._config.path.base
+        parts: list[str] = []
+        for file_path in files:
+            expanded = os.path.expanduser(file_path)
+            if not os.path.isabs(expanded):
+                expanded = os.path.join(base, expanded)
+            if not os.path.exists(expanded):
+                raise FileNotFoundError(
+                    f"instructions file not found: {expanded} "
+                    f"(resolved from '{file_path}')"
+                )
+            with open(expanded, "r", encoding="utf-8") as f:
+                parts.append(f.read())
+        return "\n\n".join(parts)
 
     @contextmanager
     def _session_log_context(self, session_id: str):

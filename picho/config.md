@@ -22,6 +22,7 @@
       "input_types": ["text", "image", "video"]
     },
     "instructions": "你是一个优秀的AI助手，你的名字叫`picho`，你的回答风格是简洁",
+    "instructions_files": [],
     "thinking_level": "auto | enabled | disabled",
     "builtin": {
       "tool": ["read", "write", "bash", "edit"],
@@ -63,6 +64,8 @@
   }
 }
 ```
+
+> **注意**：`instructions` 和 `instructions_files` 互斥，只能设置其中一个。上面的示例同时列出两者是为了展示所有可用字段，实际使用时请只保留一个。如果两者都不设置，`instructions` 默认为 `"You are a helpful AI assistant named picho."`。`instructions_files`可以是["path/to/file1.md", "path/to/file2.md"]，picho会将instructions_files拼接起来，成为模型的instructions。
 
 ## 配置项详解
 
@@ -129,6 +132,42 @@ Agent 相关配置。
 | 类型 | 默认值 | 说明 |
 |------|--------|------|
 | string | `"You are a helpful AI assistant named picho."` | 系统提示词 |
+
+与 `instructions_files` 互斥，二者只能设置一个。如果都不设置，使用默认值。
+
+#### agent.instructions_files
+
+| 类型 | 默认值 | 说明 |
+|------|--------|------|
+| string[] | `[]` | 系统提示词文件路径列表 |
+
+指定一组文件，picho 会按列表顺序读取并拼接为系统提示词（文件之间以双换行分隔）。
+与 `instructions` 互斥，二者只能设置一个。
+
+路径规则：
+- 绝对路径直接使用
+- 相对路径基于 `path.base` 解析（即 `.picho` 目录）
+- 支持 `~` 展开
+
+示例 — 从多个文件组装系统提示词：
+
+```json
+{
+  "agent": {
+    "instructions_files": [
+      "instructions/base.md",
+      "instructions/coding-style.md",
+      "/absolute/path/to/custom-instructions.md"
+    ]
+  }
+}
+```
+
+假设 `path.base` 为 `/project/.picho`，则实际读取的文件为：
+
+1. `/project/.picho/instructions/base.md`
+2. `/project/.picho/instructions/coding-style.md`
+3. `/absolute/path/to/custom-instructions.md`
 
 #### agent.thinking_level
 
